@@ -31,4 +31,26 @@ const overlay=applyChangedFiles(model,changed);
 const candidates=projectAwareCandidates(overlay,changed);
 assert(candidates.some(x=>x.detector==='repo-nest-route-unguarded'));
 
-console.log('repository intelligence tests passed: stack, graph, routes, guards, DB, Redis, infra, relevant-context, repo-aware detector');
+// Lerna + TypeORM + Nest path aliases + global APP_GUARD (QuizLand-style).
+const nestFiles=[
+  {path:'lerna.json',content:JSON.stringify({packages:['apps/*','backend']})},
+  {path:'backend/package.json',content:JSON.stringify({name:'@acme/backend',dependencies:{'@nestjs/core':'x','typeorm':'x','mysql2':'x','ioredis':'x'}})},
+  {path:'backend/tsconfig.json',content:JSON.stringify({compilerOptions:{paths:{'@app/auth':['libs/auth/src'],'@app/auth/*':['libs/auth/src/*']}}})},
+  {path:'backend/apps/api/src/app.module.ts',content:`import {JwtRolesGuard} from '@app/auth';\n{ provide: APP_GUARD, useClass: JwtRolesGuard }`},
+  {path:'backend/libs/auth/src/index.ts',content:`export class JwtRolesGuard {}`},
+  {path:'backend/libs/db/src/entities/user.entity.ts',content:`import {Entity,Column} from 'typeorm';\n@Entity('users')\nexport class UserEntity {\n@Column({unique:true}) msisdn!: string;\n}`},
+  {path:'backend/apps/api/src/wallet.controller.ts',content:`import {JwtRolesGuard} from '@app/auth';\n@Controller('wallet')\nexport class WalletController {\n@Get(':id') getOne(){}\n@Public()\n@Post('login') login(){}\n}`}
+];
+const nest=buildRepositoryModel(nestFiles,'def');
+assert.equal(nest.stack.workspace,'lerna');
+assert(nest.stack.orm.includes('typeorm'));
+assert(nest.stack.databases.includes('mariadb'));
+assert(nest.auth.globalGuards.includes('JwtRolesGuard'));
+assert(nest.dbModels.some(m=>m.name==='UserEntity' && m.unique.includes('msisdn')));
+assert(nest.imports['backend/apps/api/src/app.module.ts']?.some(p=>p.includes('libs/auth')));
+const publicChange=[{path:'backend/apps/api/src/wallet.controller.ts',status:'modified',headContent:nestFiles.at(-1).content}];
+const publicCandidates=projectAwareCandidates(applyChangedFiles(nest,publicChange),publicChange);
+assert(publicCandidates.some(x=>x.detector==='repo-nest-public-resource'));
+assert(!publicCandidates.some(x=>x.detector==='repo-nest-route-unguarded'));
+
+console.log('repository intelligence tests passed: stack, graph, routes, guards, DB, Redis, infra, relevant-context, repo-aware detector, lerna/typeorm/aliases/global-guards');
