@@ -65,10 +65,10 @@ The index is keyed by the **base commit SHA**, so repeated pushes to the same PR
 The current repository-intelligence layer is designed primarily for the stack this project targets:
 
 - TypeScript / JavaScript
-- monorepos (pnpm, npm/yarn workspaces, Nx, Turborepo discovery)
-- NestJS
+- monorepos (pnpm, npm/yarn, Lerna, Nx, Turborepo, Nest)
+- NestJS (controllers, WebSocket gateways, `APP_GUARD`, `@Public()`)
 - Next.js App Router route handlers
-- Prisma, with generic TypeORM/Drizzle/SQL signals
+- TypeORM entities and Prisma, plus generic Drizzle/SQL signals
 - PostgreSQL and MariaDB/MySQL detection
 - Redis / ioredis / BullMQ discovery
 - Docker / Docker Compose
@@ -113,12 +113,12 @@ Repository understanding is deliberately **not rebuilt on every push**.
 Tune these values for very large monorepos:
 
 ```env
-INDEX_MAX_FILES=260
-INDEX_MAX_FILE_BYTES=90000
-INDEX_MAX_FILE_CHARS=90000
-INDEX_FETCH_CONCURRENCY=10
-INDEX_MAX_TREE_PAGES=8
-MAX_RELATED_FILES=30
+INDEX_MAX_FILES=800
+INDEX_MAX_FILE_BYTES=120000
+INDEX_MAX_FILE_CHARS=120000
+INDEX_FETCH_CONCURRENCY=12
+INDEX_MAX_TREE_PAGES=80
+MAX_RELATED_FILES=50
 JEV_CONCURRENCY=6
 ```
 
