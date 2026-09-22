@@ -6,12 +6,13 @@ MergeGuard does not review a changed file in isolation. It builds and caches a r
 
 Current repository facts include:
 
-- workspace/monorepo packages;
+- workspace/monorepo packages (pnpm, npm/yarn, Lerna, Nx, Turborepo, Nest);
+- TypeScript path aliases such as `@app/auth`;
 - detected applications and frameworks;
 - import and reverse-import relationships;
-- NestJS controllers, routes and visible guards;
+- NestJS controllers, WebSocket messages, local guards and global `APP_GUARD`;
 - Next.js route-handler presence and application boundaries;
-- Prisma models, fields, indexes and unique constraints;
+- Prisma models and TypeORM `@Entity` fields/uniques/indexes;
 - PostgreSQL/MariaDB indicators;
 - Redis/ioredis/BullMQ usage;
 - Docker/Docker Compose service information;
