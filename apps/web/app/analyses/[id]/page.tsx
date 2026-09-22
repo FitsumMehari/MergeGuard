@@ -1,7 +1,105 @@
 import { api } from "@/lib/api";
-export default async function Analysis({ params }: {
-    params: Promise<{
-        id: string;
-    }>;
-}) { const { id } = await params; const x: any = await api(`/api/analyses/${id}`); return <><a className="muted" href="/">← Reviews</a><div className="card"><div className="row"><div><h1>{x.changeRequest.title}</h1><div className="muted">{x.changeRequest.repository.owner}/{x.changeRequest.repository.name} #{x.changeRequest.number}</div></div><div><span className={`pill ${x.riskLevel}`}>{x.riskLevel}</span><div className="metric">{x.riskScore ?? "–"}/100</div></div></div></div><div className="grid"><div className="card"><div className="metric">{x.findings.length}</div><div className="muted">Findings</div></div><div className="card"><div className="metric">{x.filesReviewed}</div><div className="muted">Files reviewed</div></div><div className="card"><div className="metric">{Math.round((x.riskConfidence || 0) * 100)}%</div><div className="muted">Risk confidence</div></div></div><h2>Findings</h2>{x.findings.length === 0 ? <div className="card">No reportable high-confidence issues.</div> : x.findings.map((f: any) => <article key={f.id} className={`card finding ${f.severity}`}><div className="row"><div><span className={`pill ${f.severity}`}>{f.severity}</span> <span className="pill">{f.category}</span></div><strong>{Math.round(f.confidence * 100)}% confidence</strong></div><h3 style={{ marginTop: 12 }}>{f.title}</h3><div className="code">{f.file}{f.startLine ? `:${f.startLine}` : ""}</div><p>{f.description}</p>{f.executionPath && <><strong>Execution path</strong><pre>{(f.executionPath as string[]).join("\n→ ")}</pre></>}{f.edgeCase && <><strong>Edge case</strong><pre>{JSON.stringify(f.edgeCase, null, 2)}</pre></>}{f.remediation && <><strong>Suggested remediation</strong><p>{f.remediation}</p></>}{f.suggestedTest && <><strong>Suggested regression test</strong><pre>{f.suggestedTest}</pre></>}</article>)}</>; }
+import { pillClass, type AnalysisDetail } from "@/lib/types";
 
+export default async function Analysis({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  let analysis: AnalysisDetail | null = null;
+  try {
+    analysis = await api<AnalysisDetail>(`/api/analyses/${id}`);
+  } catch {
+    analysis = null;
+  }
+
+  if (!analysis) {
+    return (
+      <>
+        <a className="muted" href="/">
+          ← Reviews
+        </a>
+        <div className="card">This analysis was not found or the API is unavailable.</div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <a className="muted" href="/">
+        ← Reviews
+      </a>
+      <div className="card">
+        <div className="row">
+          <div>
+            <h1>{analysis.changeRequest.title}</h1>
+            <div className="muted">
+              {analysis.changeRequest.repository.owner}/{analysis.changeRequest.repository.name} #{analysis.changeRequest.number}
+            </div>
+          </div>
+          <div>
+            <span className={`pill ${pillClass(analysis.riskLevel)}`}>{analysis.riskLevel}</span>
+            <div className="metric">{analysis.riskScore ?? "–"}/100</div>
+          </div>
+        </div>
+      </div>
+      <div className="grid">
+        <div className="card">
+          <div className="metric">{analysis.findings.length}</div>
+          <div className="muted">Findings</div>
+        </div>
+        <div className="card">
+          <div className="metric">{analysis.filesReviewed}</div>
+          <div className="muted">Files reviewed</div>
+        </div>
+        <div className="card">
+          <div className="metric">{Math.round((analysis.riskConfidence || 0) * 100)}%</div>
+          <div className="muted">Risk confidence</div>
+        </div>
+      </div>
+      <h2>Findings</h2>
+      {analysis.findings.length === 0 ? (
+        <div className="card">No reportable high-confidence issues.</div>
+      ) : (
+        analysis.findings.map((finding) => (
+          <article key={finding.id} className={`card finding ${pillClass(finding.severity)}`}>
+            <div className="row">
+              <div>
+                <span className={`pill ${pillClass(finding.severity)}`}>{finding.severity}</span>{" "}
+                <span className="pill">{finding.category}</span>
+              </div>
+              <strong>{Math.round(finding.confidence * 100)}% confidence</strong>
+            </div>
+            <h3 style={{ marginTop: 12 }}>{finding.title}</h3>
+            <div className="code">
+              {finding.file}
+              {finding.startLine ? `:${finding.startLine}` : ""}
+            </div>
+            <p>{finding.description}</p>
+            {finding.executionPath ? (
+              <>
+                <strong>Execution path</strong>
+                <pre>{finding.executionPath.join("\n→ ")}</pre>
+              </>
+            ) : null}
+            {finding.edgeCase ? (
+              <>
+                <strong>Edge case</strong>
+                <pre>{JSON.stringify(finding.edgeCase, null, 2)}</pre>
+              </>
+            ) : null}
+            {finding.remediation ? (
+              <>
+                <strong>Suggested remediation</strong>
+                <p>{finding.remediation}</p>
+              </>
+            ) : null}
+            {finding.suggestedTest ? (
+              <>
+                <strong>Suggested regression test</strong>
+                <pre>{finding.suggestedTest}</pre>
+              </>
+            ) : null}
+          </article>
+        ))
+      )}
+    </>
+  );
+}
