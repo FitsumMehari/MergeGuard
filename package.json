@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "pnpm -r --parallel dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter \"./packages/**\" build && pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "db:generate": "pnpm --filter @mergeguard/db prisma:generate",
     "db:migrate": "pnpm --filter @mergeguard/db prisma:migrate",
