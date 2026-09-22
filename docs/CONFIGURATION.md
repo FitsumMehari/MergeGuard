@@ -27,15 +27,15 @@ JEV_FAIL_OPEN=false
 ## Repository indexing
 
 ```env
-INDEX_MAX_FILES=260
-INDEX_MAX_FILE_BYTES=90000
-INDEX_MAX_FILE_CHARS=90000
-INDEX_FETCH_CONCURRENCY=10
-INDEX_MAX_TREE_PAGES=8
-MAX_RELATED_FILES=30
+INDEX_MAX_FILES=800
+INDEX_MAX_FILE_BYTES=120000
+INDEX_MAX_FILE_CHARS=120000
+INDEX_FETCH_CONCURRENCY=12
+INDEX_MAX_TREE_PAGES=80
+MAX_RELATED_FILES=50
 ```
 
-These values bound first-index latency and memory use. Increase them only after measuring real repositories.
+Defaults are sized for NestJS/TypeORM/Lerna monorepos (QuizLand-style). Lower them only on small repositories if first-index time or memory is a problem.
 
 ## Worker/runtime
 
