@@ -1,113 +1,93 @@
 # GitLab setup
 
-This guide connects one GitLab project to a running MergeGuard instance. Start with a non-critical/internal test repository.
+Connect **any number of GitLab projects** (or a whole group) to one MergeGuard instance. Every merge-request open/update is analyzed with the same pipeline. Nest/TypeORM intelligence is extra context when that stack is present; other repos still get the generic detectors.
 
 ## 1. Requirements
-
-MergeGuard must be running and GitLab must be able to reach its API webhook URL over HTTPS (or over your internal network for self-managed GitLab).
-
-Verify:
 
 ```bash
 ./start.sh prod health
 ```
 
-## 2. Create a GitLab token
+GitLab must reach `https://YOUR_API_HOST/webhooks/gitlab`.
 
-For the first integration, use a project access token/service token when your GitLab edition and organization policy permit it. A personal access token also works for a controlled test, but a project-scoped service credential is preferable.
+## 2. Token that can see every connected project
 
-The current implementation reads repository/MR data and creates MR notes, so configure an API-capable token with access to the target project.
-
-Put it in `.env.production`:
+Use a **group access token** (or a bot user) with `api` scope on the group that owns QuizLand and the other repos.
 
 ```env
-GITLAB_BASE_URL=https://gitlab.example.com
+GITLAB_BASE_URL=https://repo.teleport.et
 GITLAB_TOKEN=glpat-...
 ```
 
-For GitLab.com use:
+If some projects need a different token:
 
 ```env
-GITLAB_BASE_URL=https://gitlab.com
+GITLAB_PROJECT_TOKENS={"123":"glpat-project-a","456":"glpat-project-b"}
 ```
 
-Never commit the token.
+Unlisted projects fall back to `GITLAB_TOKEN`.
 
-## 3. Verify the token before involving MergeGuard
-
-Find the numeric project ID in GitLab, then from the MergeGuard server:
+Verify one project:
 
 ```bash
-export GITLAB_TOKEN='glpat-...'
-export GITLAB_BASE_URL='https://gitlab.example.com'
-export PROJECT_ID='123'
-
-curl --fail --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "$GITLAB_BASE_URL/api/v4/projects/$PROJECT_ID"
-
 curl --fail --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
   "$GITLAB_BASE_URL/api/v4/projects/$PROJECT_ID/merge_requests"
 ```
 
-If these fail, fix token/project/network permissions before debugging MergeGuard.
-
-## 4. Create the webhook secret
-
-Generate a secret:
+## 3. Webhook secret
 
 ```bash
 openssl rand -hex 32
 ```
 
-Set it in `.env.production`:
-
 ```env
 GITLAB_WEBHOOK_SECRET=<generated-value>
 ```
-
-Restart production after changing secrets:
 
 ```bash
 ./start.sh prod restart
 ```
 
-## 5. Add the GitLab webhook
+## 4. Attach every project (or the group)
 
-In the GitLab project, open the project webhook settings and configure:
+**Preferred:** group webhook (Settings → Webhooks) so every project in the group is covered without per-repo setup.
 
-- URL: `https://mergeguard-api.example.com/webhooks/gitlab`
-- Secret token: exactly the value of `GITLAB_WEBHOOK_SECRET`
+- URL: `https://YOUR_API_HOST/webhooks/gitlab`
+- Secret token: exactly `GITLAB_WEBHOOK_SECRET`
 - Trigger: **Merge request events**
-- SSL verification: keep enabled with a valid certificate
+- SSL verification: on
 
-The current API reacts to MR `open`, `reopen`, and `update` actions. A new push that updates the MR head should therefore trigger analysis.
+You can also add the same webhook on individual projects.
 
-## 6. Observe webhook and worker processing
+MergeGuard accepts MR `open`, `reopen`, `update`, and `ready` from any project id in the payload. Draft MRs are analyzed too. The same head SHA is not analyzed twice.
 
-In one terminal:
+## 5. What every MR gets
+
+Regardless of stack:
+
+- changed-file fetch (paginated)
+- generic + TypeScript AST detectors
+- risk score, GitLab note, dashboard row
+
+If the repo looks like QuizLand (Lerna/Nest/TypeORM), it also gets route/guard/entity/alias context. If indexing fails, the MR is still reviewed from the diff alone.
+
+## 6. Watch a live MR
 
 ```bash
 ./start.sh prod logs api
-```
-
-In another:
-
-```bash
 ./start.sh prod logs worker
 ```
 
-Create/update an MR. The API should accept the event and queue it; the worker should fetch the MR diff/files, build/load the repository model, analyze it, and publish a note back to the MR.
+Open or push to an MR in **any** connected project. You should see `analysis_started` with that repository name, then a note on the MR.
 
-## 7. Common GitLab failures
+## 7. Common failures
 
 | Symptom | Check |
 |---|---|
-| Webhook returns 401 | `GITLAB_WEBHOOK_SECRET` differs from GitLab webhook secret |
-| Webhook cannot connect | DNS/firewall/HTTPS/reverse-proxy configuration |
-| Worker reports `Missing GITLAB_TOKEN` | token absent from `.env.production` or service not restarted |
-| GitLab API returns 401/403 | token scope, expiry, role, or project access |
-| Analysis runs but no MR note | token cannot create notes or project/IID is wrong |
-| First review is slow | expected initial repository-index build |
-| Repeated identical events | queue/database idempotency should collapse the same head SHA |
+| Webhook 401 | secret mismatch |
+| One project 401/403, others fine | token cannot see that project; add `GITLAB_PROJECT_TOKENS` |
+| No note | token cannot create notes |
+| First MR on a repo is slow | first base-SHA index |
+| Same head twice | idempotent; expected |
 
-Continue with [First live test](FIRST_LIVE_TEST.md).
+Continue with [First live test](FIRST_LIVE_TEST.md) on two different projects, not only QuizLand.
