@@ -1,0 +1,108 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+
+model Repository {
+  id String @id @default(cuid())
+  platform String
+  externalId String
+  owner String
+  name String
+  url String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  changes ChangeRequest[]
+  indexes RepositoryIndex[]
+  @@unique([platform, externalId])
+}
+model ChangeRequest {
+  id String @id @default(cuid())
+  repositoryId String
+  repository Repository @relation(fields:[repositoryId],references:[id],onDelete:Cascade)
+  externalId String
+  number Int
+  title String
+  author String
+  baseSha String
+  headSha String
+  url String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  analyses AnalysisRun[]
+  @@unique([repositoryId, externalId])
+}
+model AnalysisRun {
+  id String @id @default(cuid())
+  changeRequestId String
+  changeRequest ChangeRequest @relation(fields:[changeRequestId],references:[id],onDelete:Cascade)
+  headSha String
+  status String @default("queued")
+  riskLevel String?
+  riskScore Int?
+  riskConfidence Float?
+  filesReviewed Int @default(0)
+  relatedFilesReviewed Int @default(0)
+  error String?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  findings Finding[]
+  signals StaticSignalRecord[]
+  @@index([changeRequestId, createdAt])
+  @@unique([changeRequestId, headSha])
+}
+model Finding {
+  id String @id
+  analysisRunId String
+  analysisRun AnalysisRun @relation(fields:[analysisRunId],references:[id],onDelete:Cascade)
+  category String
+  severity String
+  confidence Float
+  title String
+  description String
+  file String
+  startLine Int?
+  endLine Int?
+  evidence Json
+  executionPath Json?
+  edgeCase Json?
+  remediation String?
+  suggestedTest String?
+  verification Json
+  source String
+  feedback String?
+  createdAt DateTime @default(now())
+  @@index([analysisRunId, severity])
+}
+model StaticSignalRecord {
+  id String @id
+  analysisRunId String
+  analysisRun AnalysisRun @relation(fields:[analysisRunId],references:[id],onDelete:Cascade)
+  category String
+  severity String
+  file String?
+  line Int?
+  title String
+  description String
+  confidence Float
+  evidence Json?
+}
+model WebhookDelivery {
+  id String @id @default(cuid())
+  platform String
+  deliveryId String
+  event String
+  receivedAt DateTime @default(now())
+  @@unique([platform, deliveryId])
+}
+
+model RepositoryIndex {
+  id String @id @default(cuid())
+  repositoryId String
+  repository Repository @relation(fields:[repositoryId],references:[id],onDelete:Cascade)
+  sha String
+  status String @default("ready")
+  model Json
+  fileCount Int @default(0)
+  generatedAt DateTime @default(now())
+  @@unique([repositoryId, sha])
+  @@index([repositoryId, generatedAt])
+}

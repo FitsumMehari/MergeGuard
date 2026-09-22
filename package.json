@@ -1,0 +1,24 @@
+{
+  "name": "mergeguard",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @mergeguard/db prisma:generate",
+    "db:migrate": "pnpm --filter @mergeguard/db prisma:migrate",
+    "db:studio": "pnpm --filter @mergeguard/db prisma:studio",
+    "test:offline": "pnpm --filter @mergeguard/core build && pnpm --filter @mergeguard/analyzer build && pnpm --filter @mergeguard/repo-intel build && pnpm --filter @mergeguard/providers build && node tests/syntax-check.cjs && node tests/detectors.mjs && node tests/repo-intel.mjs && node tests/jev-mock.mjs",
+    "check": "pnpm typecheck && pnpm test:offline",
+    "start:api": "pnpm --filter @mergeguard/api start",
+    "start:worker": "pnpm --filter @mergeguard/worker start",
+    "start:web": "pnpm --filter @mergeguard/web start",
+    "db:deploy": "pnpm --filter @mergeguard/db prisma:deploy"
+  },
+  "version": "1.1.0",
+  "engines": {
+    "node": ">=22"
+  }
+}
