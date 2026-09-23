@@ -63,6 +63,27 @@ ensure_dev_env() {
   fi
 }
 
+load_dev_env() {
+  ensure_dev_env
+  set -a
+  # shellcheck disable=SC1091
+  source "$DEV_ENV"
+  set +a
+  [[ -n "${DATABASE_URL:-}" ]] || die "DATABASE_URL is missing from .env"
+}
+
+wait_for_postgres() {
+  info "Waiting for PostgreSQL to accept connections..."
+  local i
+  for i in $(seq 1 40); do
+    if docker compose exec -T postgres pg_isready -U mergeguard -d mergeguard >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  die "PostgreSQL did not become ready. Check: docker compose logs postgres"
+}
+
 ensure_prod_env() {
   [[ -f "$PROD_ENV" ]] || {
     cp .env.production.example "$PROD_ENV"
@@ -88,13 +109,14 @@ install_dev_deps() {
 dev_up() {
   require_docker
   require_node_tooling
-  ensure_dev_env
+  load_dev_env
   if [[ -f "$DEV_PID_FILE" ]] && kill -0 "$(cat "$DEV_PID_FILE")" 2>/dev/null; then
     info "Dev app processes are already running (PID $(cat "$DEV_PID_FILE"))."
     return
   fi
   info "Starting development PostgreSQL and Redis..."
   docker compose up -d postgres redis
+  wait_for_postgres
   install_dev_deps
   info "Applying development database migrations..."
   pnpm db:deploy
@@ -162,8 +184,10 @@ dev_health() {
 }
 
 dev_migrate() {
+  require_docker
   require_node_tooling
-  ensure_dev_env
+  load_dev_env
+  wait_for_postgres
   install_dev_deps
   pnpm db:deploy
 }
