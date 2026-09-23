@@ -3,6 +3,7 @@ import Fastify, { type FastifyError, type FastifyReply, type FastifyRequest } fr
 import rawBody from "fastify-raw-body";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
+import { optionalStringEnv } from "@mergeguard/core";
 import { db } from "@mergeguard/db";
 import { loadApiConfig } from "./config.js";
 import {
@@ -85,8 +86,9 @@ app.get("/health/ready", async (_request, reply) => {
 app.post("/webhooks/github", { config: { rawBody: true } }, async (request, reply) => {
   const body = String((request as FastifyRequest & { rawBody?: string }).rawBody ?? "");
   const signature = String(request.headers["x-hub-signature-256"] ?? "");
-  if (!config.githubWebhookSecret) return reply.code(503).send({ error: "github_integration_not_configured" });
-  if (!verifyGithubSignature(body, signature, config.githubWebhookSecret)) {
+  const githubWebhookSecret = optionalStringEnv("GITHUB_WEBHOOK_SECRET") ?? config.githubWebhookSecret;
+  if (!githubWebhookSecret) return reply.code(503).send({ error: "github_integration_not_configured" });
+  if (!verifyGithubSignature(body, signature, githubWebhookSecret)) {
     return reply.code(401).send({ error: "bad_signature" });
   }
   const event = String(request.headers["x-github-event"] ?? "");
@@ -172,7 +174,7 @@ async function enqueueOnce(
   payload: unknown,
   analysisKey: string,
 ): Promise<void> {
-  const jobId = `${platform}:${analysisKey}`;
+  const jobId = `${platform}-${analysisKey}`;
   try {
     await queue.add("analyze", { platform, deliveryId, payload }, { jobId });
   } catch (error) {
