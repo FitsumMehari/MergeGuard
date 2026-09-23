@@ -1,4 +1,6 @@
-import { intEnv, optionalStringEnv, stringEnv } from "@mergeguard/core";
+import { intEnv, loadWorkspaceEnv, optionalStringEnv, stringEnv } from "@mergeguard/core";
+
+loadWorkspaceEnv();
 
 export interface ApiConfig {
   nodeEnv: string;
