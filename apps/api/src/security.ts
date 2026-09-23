@@ -42,7 +42,7 @@ export function githubAnalysisKey(payload: Record<string, unknown>): string {
   const repo = readString(repository.id, "unknown-repo");
   const number = readString(pullRequest.number, "unknown-pr");
   const sha = readString(head.sha, readString(payload.after, "unknown-sha"));
-  return `${repo}:${number}:${sha}`;
+  return `${repo}-${number}-${sha}`;
 }
 
 export function gitlabAnalysisKey(payload: Record<string, unknown>): string {
@@ -52,5 +52,5 @@ export function gitlabAnalysisKey(payload: Record<string, unknown>): string {
   const projectId = readString(project.id, "unknown-project");
   const iid = readString(attributes.iid, "unknown-mr");
   const sha = readString(lastCommit.id, readString(lastCommit.sha, "unknown-sha"));
-  return `${projectId}:${iid}:${sha}`;
+  return `${projectId}-${iid}-${sha}`;
 }
