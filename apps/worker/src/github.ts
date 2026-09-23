@@ -1,4 +1,5 @@
-import { SignJWT, importPKCS8 } from "jose";
+import { createPrivateKey } from "node:crypto";
+import { SignJWT } from "jose";
 import type { ChangeRequest, ChangedFile, Finding } from "@mergeguard/core";
 import type { IndexedFile } from "@mergeguard/repo-intel";
 import { prioritizeIndexPaths, shouldIndexPath } from "@mergeguard/repo-intel";
@@ -20,7 +21,7 @@ export async function githubInstallationToken(installationId: number): Promise<s
   const raw = workerConfig.githubPrivateKey;
   if (!appId || !raw) throw new Error("Missing GitHub App credentials");
   const pem = raw.replace(/\\n/g, "\n");
-  const key = await importPKCS8(pem, "RS256");
+  const key = createPrivateKey(pem);
   const now = Math.floor(Date.now() / 1000);
   const jwt = await new SignJWT({})
     .setProtectedHeader({ alg: "RS256" })
