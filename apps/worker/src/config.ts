@@ -1,4 +1,6 @@
-import { boolEnv, floatEnv, intEnv, optionalStringEnv, stringEnv } from "@mergeguard/core";
+import { boolEnv, floatEnv, intEnv, loadWorkspaceEnv, optionalStringEnv, stringEnv } from "@mergeguard/core";
+
+loadWorkspaceEnv();
 
 const nodeEnv = process.env.NODE_ENV?.trim() || "development";
 const requireJev = boolEnv("REQUIRE_JEV", nodeEnv === "production");
