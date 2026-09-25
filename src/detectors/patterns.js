@@ -2,7 +2,7 @@ import { languageForPath } from "../languages.js";
 import { dedupe, stableId, truncate } from "../utils.js";
 
 const rules = [
-  rule("dynamic-eval", /\b(?:eval|exec)\s*\(/gi, ["javascript","typescript","python","php","ruby"], "security", "critical", "Dynamic code execution introduced", "Dynamic evaluation can execute attacker-controlled text as code.", "Avoid dynamic evaluation. Parse or map explicitly allowed operations instead.", 0.90),
+  rule("dynamic-eval", /\b(?:eval|exec|new\s+Function)\s*\(/gi, ["javascript","typescript","python","php","ruby"], "security", "critical", "Dynamic code execution introduced", "Dynamic evaluation can execute attacker-controlled text as code.", "Avoid dynamic evaluation. Parse or map explicitly allowed operations instead.", 0.90),
   rule("js-shell-interpolation", /(?:exec|execSync)\s*\(\s*`[^`]*\$\{|(?:exec|execSync)\s*\([^)]*(?:req\.|request\.|params|query|body)/gi, ["javascript","typescript"], "security", "critical", "Potential command injection", "A shell command appears to include dynamic or request-controlled input.", "Use execFile/spawn with an argument array and strict allow-list validation.", 0.91),
   rule("python-shell-true", /subprocess\.(?:run|Popen|call|check_output|check_call)\s*\([^\n]{0,500}?shell\s*=\s*True/gi, ["python"], "security", "high", "Shell execution enabled", "Python subprocess is invoked with shell=True, which can turn interpolated input into shell injection.", "Pass an argument list with shell=False and validate any dynamic arguments.", 0.86),
   rule("php-shell", /\b(?:shell_exec|passthru|system|exec)\s*\([^\n]*(?:\$\w+|\$_(?:GET|POST|REQUEST))/gi, ["php"], "security", "critical", "Potential command injection", "A PHP shell execution call appears to include variable or request input.", "Avoid shell execution or pass strictly validated allow-listed arguments.", 0.90),
@@ -17,12 +17,12 @@ const rules = [
   rule("cors-wildcard", /(?:Access-Control-Allow-Origin["']?\s*[:,]\s*["']\*["']|origin\s*:\s*["']\*["']|allow_origins\s*=\s*\[["']\*["']\])/gi, null, "security", "medium", "Wildcard CORS policy", "The changed CORS policy permits arbitrary origins.", "Allow-list trusted origins and review credential behavior.", 0.74),
   rule("sensitive-log", /(?:console\.(?:log|info|debug|warn)|logger\.(?:info|debug|warn)|print\s*\()[^\n]{0,300}(?:password|passwd|token|secret|authorization|cookie|api[_-]?key)/gi, null, "security", "high", "Possible credential data written to logs", "Credential-like data appears in a log statement.", "Remove or redact the sensitive value before logging.", 0.80),
   rule("python-pickle", /\bpickle\.(?:loads?|Unpickler)\s*\(/gi, ["python"], "security", "high", "Python pickle deserialization", "Pickle can execute arbitrary code when loading untrusted data.", "Use a safe serialization format for untrusted input or strictly constrain the data source.", 0.80),
-  rule("python-yaml-load", /yaml\.load\s*\([^\n]*(?!SafeLoader)/gi, ["python"], "security", "high", "Potential unsafe YAML deserialization", "yaml.load without an explicit safe loader can construct unsafe Python objects.", "Use yaml.safe_load or SafeLoader for untrusted YAML.", 0.77),
+  rule("python-yaml-load", /yaml\.load\s*\(/gi, ["python"], "security", "high", "Potential unsafe YAML deserialization", "yaml.load without an explicit safe loader can construct unsafe Python objects.", "Use yaml.safe_load or SafeLoader for untrusted YAML.", 0.77, (match, added) => /SafeLoader|CSafeLoader/.test(lineAt(added, match.index))),
   rule("php-unserialize", /\bunserialize\s*\([^\n]*(?:\$\w+|\$_(?:GET|POST|REQUEST))/gi, ["php"], "security", "high", "Untrusted PHP deserialization", "PHP unserialize on request-derived data can enable object injection.", "Use JSON or a safe typed format for untrusted input.", 0.86),
   rule("java-deserialization", /ObjectInputStream[\s\S]{0,350}?\.readObject\s*\(/gi, ["java"], "security", "high", "Java native deserialization", "ObjectInputStream can instantiate attacker-controlled object graphs when its source is untrusted.", "Use a constrained serialization format and explicit schema for untrusted data.", 0.72),
   rule("dotnet-binaryformatter", /BinaryFormatter[\s\S]{0,300}?\.Deserialize\s*\(/gi, ["csharp"], "security", "critical", "Unsafe .NET BinaryFormatter deserialization", "BinaryFormatter is unsafe for untrusted data and can lead to code execution.", "Replace BinaryFormatter with a safe serializer and explicit data contracts.", 0.96),
   rule("ruby-marshal", /Marshal\.load\s*\([^\n]*(?:params|request|cookies|\w+)/gi, ["ruby"], "security", "high", "Ruby Marshal deserialization", "Marshal.load can instantiate arbitrary objects and is unsafe for untrusted data.", "Use JSON or another constrained serialization format for external data.", 0.75),
-  rule("jwt-decode-only", /(?:jwt\.decode|decodeJwt|JWT\.decode)\s*\(/gi, null, "authorization", "high", "JWT decoded without visible verification", "Decoding token claims is not equivalent to validating the signature and trusted claims.", "Verify signature, algorithm, issuer, audience, and expiry before trusting claims.", 0.70),
+  rule("jwt-decode-only", /(?:jwt\.decode|decodeJwt|JWT\.decode)\s*\(/gi, null, "authorization", "high", "JWT decoded without visible verification", "Decoding token claims is not equivalent to validating the signature and trusted claims.", "Verify signature, algorithm, issuer, audience, and expiry before trusting claims.", 0.70, (match, added) => /jwt\.verify|verifyAsync|verify\s*\(/i.test(windowAt(added, match.index, 500))),
   rule("open-redirect", /(?:redirect|Redirect|location\.(?:href|assign))\s*\([^\n]*(?:req\.|request\.|params|query|returnUrl|next=)/gi, null, "security", "medium", "Potential open redirect", "A redirect target appears influenced by request input.", "Allow-list destinations or map opaque route identifiers to internal URLs.", 0.67),
   rule("async-foreach", /\.forEach\s*\(\s*async\b/gi, ["javascript","typescript"], "correctness", "high", "Async callback passed to forEach", "forEach does not await async callbacks, so the surrounding flow can finish before side effects complete.", "Use for...of for sequential work or await Promise.all(items.map(...)) when parallelism is safe.", 0.95),
   rule("floating-promise", /(?:^|\n)\s*(?:fetch|axios\.|[A-Za-z_$][\w$]*Async\s*\()[^;\n]*;\s*(?:\n|$)/g, ["javascript","typescript"], "reliability", "medium", "Possible unawaited asynchronous operation", "A promise-returning operation appears to be started without await/return/handling.", "Await, return, or explicitly handle the promise and its rejection.", 0.58),
@@ -55,6 +55,7 @@ export function patternCandidates(files, { maxCandidates = 120 } = {}) {
       const regex = new RegExp(item.regex.source, item.regex.flags.includes("g") ? item.regex.flags : `${item.regex.flags}g`);
       let count = 0;
       for (const match of added.matchAll(regex)) {
+        if (item.skip?.(match, added, file)) continue;
         if (count++ >= 6) break;
         const line = lineFromAddedOffset(file.patch, match.index ?? 0) ?? firstAddedLine(file.patch);
         output.push({
@@ -118,8 +119,18 @@ export function staticSignals(files) {
   return dedupe(signals, (item) => item.id);
 }
 
-function rule(id, regex, languages, category, severity, title, description, remediation, confidence, needle) {
-  return { id, regex, languages, category, severity, title, description, remediation, confidence, needle };
+function rule(id, regex, languages, category, severity, title, description, remediation, confidence, skip) {
+  return { id, regex, languages, category, severity, title, description, remediation, confidence, skip };
+}
+
+function lineAt(text, index = 0) {
+  const start = text.lastIndexOf("\n", index) + 1;
+  const end = text.indexOf("\n", index);
+  return text.slice(start, end === -1 ? undefined : end);
+}
+
+function windowAt(text, index = 0, radius = 400) {
+  return text.slice(Math.max(0, index - radius), Math.min(text.length, index + radius));
 }
 
 function regression(file, detector, category, severity, title, description, remediation, reviewerConfidence, evidence) {

@@ -29,7 +29,7 @@ export function offlineVerify(candidate, context, config) {
     reachable = Math.max(reachable, 0.75);
     existingProtection = Math.min(existingProtection, 0.15);
   }
-  if (/hardcoded-localhost|unbounded-parallelism|blocking-index/.test(candidate.detector || "")) worthReporting *= 0.86;
+  if (/hardcoded-localhost|unbounded-parallelism|blocking-index|floating-promise|cors-wildcard/.test(candidate.detector || "")) worthReporting *= 0.78;
 
   const impact = IMPACT[candidate.severity] ?? 0.55;
   const strength = plausible * 0.31 + reachable * 0.18 + impact * 0.12 + (1 - existingProtection) * 0.14 + worthReporting * 0.25;

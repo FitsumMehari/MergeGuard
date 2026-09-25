@@ -9,6 +9,7 @@ const BY_EXT = new Map([
   [".rs", "rust"], [".cpp", "cpp"], [".cc", "cpp"], [".cxx", "cpp"], [".c", "c"], [".h", "c"], [".hpp", "cpp"],
   [".swift", "swift"], [".scala", "scala"], [".ex", "elixir"], [".exs", "elixir"],
   [".sql", "sql"], [".sh", "shell"], [".bash", "shell"], [".zsh", "shell"], [".ps1", "powershell"],
+  [".tf", "terraform"], [".tfvars", "terraform"],
   [".vue", "vue"], [".svelte", "svelte"],
 ]);
 

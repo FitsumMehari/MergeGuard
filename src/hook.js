@@ -1,13 +1,12 @@
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { git, repositoryRoot } from "./git.js";
+import { join } from "node:path";
+import { hooksDirectory, repositoryRoot } from "./git.js";
 
 const START = "# >>> mergeguard >>>";
 const END = "# <<< mergeguard <<<";
 
 export function hookPath(root) {
-  const gitDir = git(["rev-parse", "--git-dir"], { cwd: root }).trim();
-  return resolve(root, gitDir, "hooks", "pre-push");
+  return join(hooksDirectory(root), "pre-push");
 }
 
 export function installHook(cwd = process.cwd(), { force = false } = {}) {
@@ -19,9 +18,35 @@ export function installHook(cwd = process.cwd(), { force = false } = {}) {
     if (!force) throw new Error(`Existing pre-push hook has no shebang: ${path}. Use --force to prepend one safely.`);
     existing = `#!/bin/sh\n${existing}`;
   }
-  const block = `\n${START}\nROOT="$(git rev-parse --show-toplevel)" || exit 2\ncd "$ROOT" || exit 2\nexport MERGEGUARD_REMOTE="$1"\nif [ -x "$ROOT/node_modules/.bin/mergeguard" ]; then\n  "$ROOT/node_modules/.bin/mergeguard" review --push\nelif command -v mergeguard >/dev/null 2>&1; then\n  mergeguard review --push\nelse\n  npx --no-install mergeguard review --push\nfi\nstatus=$?\nif [ "$status" -ne 0 ]; then exit "$status"; fi\n${END}\n`;
+  const block = `
+${START}
+# MergeGuard reviews the outgoing push range. Bypass with: git push --no-verify
+input=$(cat)
+ROOT="$(git rev-parse --show-toplevel </dev/null)" || exit 2
+cd "$ROOT" || exit 2
+export MERGEGUARD_REMOTE="$1"
+run_mergeguard() {
+  if [ -n "$MERGEGUARD_BIN" ]; then
+    "$MERGEGUARD_BIN" review --push
+  elif [ -x "$ROOT/node_modules/.bin/mergeguard" ]; then
+    "$ROOT/node_modules/.bin/mergeguard" review --push
+  elif command -v mergeguard >/dev/null 2>&1; then
+    mergeguard review --push
+  else
+    npx --yes --package mergeguard mergeguard review --push
+  fi
+}
+printf '%s\\n' "$input" | run_mergeguard
+status=$?
+if [ "$status" -eq 1 ]; then
+  echo "MergeGuard blocked this push. Fix the findings, or bypass with: git push --no-verify" >&2
+  exit 1
+fi
+if [ "$status" -ne 0 ]; then exit "$status"; fi
+${END}
+`;
   writeFileSync(path, `${existing.trimEnd()}\n${block}`);
-  try { chmodSync(path, 0o755); } catch {}
+  try { chmodSync(path, 0o755); } catch { /* Windows may lack POSIX chmod */ }
   return { path, changed: true, message: "MergeGuard pre-push hook installed." };
 }
 
@@ -31,15 +56,18 @@ export function uninstallHook(cwd = process.cwd()) {
   if (!existsSync(path)) return { path, changed: false, message: "No pre-push hook exists." };
   const existing = readFileSync(path, "utf8");
   if (!existing.includes(START)) return { path, changed: false, message: "MergeGuard is not installed in the pre-push hook." };
-  const escapedStart = escapeRegExp(START), escapedEnd = escapeRegExp(END);
-  const cleaned = existing.replace(new RegExp(`\\n?${escapedStart}[\\s\\S]*?${escapedEnd}\\n?`, "m"), "\n");
-  writeFileSync(path, cleaned.trimEnd() + "\n");
+  const cleaned = existing.replace(new RegExp(`\\n?${escapeRegExp(START)}[\\s\\S]*?${escapeRegExp(END)}\\n?`, "m"), "\n");
+  writeFileSync(path, `${cleaned.trimEnd()}\n`);
   return { path, changed: true, message: "MergeGuard block removed; other pre-push hook content was preserved." };
 }
 
 export function hookStatus(cwd = process.cwd()) {
-  const root = repositoryRoot(cwd), path = hookPath(root);
+  const root = repositoryRoot(cwd);
+  const path = hookPath(root);
   const installed = existsSync(path) && readFileSync(path, "utf8").includes(START);
   return { path, installed };
 }
-function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

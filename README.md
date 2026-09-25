@@ -1,219 +1,228 @@
 # MergeGuard
 
-**Local-first semantic code review for Git diffs.** MergeGuard runs before a push or in CI, looks for concrete runtime/security/data-integrity regressions, resolves nearby repository context, and returns a normal process exit code. It does not require a MergeGuard server, database, queue, dashboard, GitHub App, or GitLab webhook.
+MergeGuard is a local-first semantic code-change gate that catches high-impact bugs before code is pushed or merged.
+
+It reviews a Git diff — not an entire repository — for concrete runtime risks such as authorization regressions, tenant-isolation holes, check-then-write races, unsafe SQL or shell construction, and removed transaction boundaries. It is not a SaaS platform and not a style linter.
 
 ```text
 Git diff
-  ↓
-MergeGuard
-  ├─ high-signal diff detectors
-  ├─ repository/context resolver
-  ├─ deterministic verifier (always available)
-  └─ optional local Laya verifier
-  ↓
-terminal / JSON / SARIF / GitLab Code Quality
-  ↓
-PASS (0) / BLOCK (1)
+   ↓
+MergeGuard review engine
+   ├── deterministic/static detectors
+   ├── repository/context resolver
+   └── optional semantic verifier
+         ├── local Laya
+         └── optional Jev/provider
+   ↓
+normalized findings
+   ↓
+terminal / JSON / SARIF / GitLab
+   ↓
+PASS / BLOCK
 ```
 
-## What it catches
-
-MergeGuard is intentionally not a formatting linter. It targets changes with a plausible failure mode, including:
-
-- concurrency races such as check-then-create and read-check-write;
-- transaction removal and multi-write partial-success risks;
-- tenant/organization/ownership predicates removed from data access;
-- authorization guards/policies removed or anonymous access introduced;
-- unsafe SQL construction, shell execution, raw HTML sinks and path traversal candidates;
-- disabled TLS verification and unsafe native deserialization;
-- webhook side effects without visible idempotency protection;
-- destructive or risky database migrations;
-- broad deletes/updates;
-- async `forEach`, swallowed exceptions, unsafe retry loops;
-- N+1 query candidates and unbounded async fan-out;
-- repository-aware checks for common Node, Python, Java/Kotlin, Go, PHP, Ruby, .NET and Rust stacks.
-
-It deliberately avoids style noise such as semicolons, naming preferences, import ordering, line length, generic "refactor this" comments, and documentation nags.
-
-## Requirements
-
-- Git
-- Node.js 20+
-
-There are **zero npm runtime dependencies**. Laya is optional and runs as a local Python process when installed; no model server is required.
-
-## Install
-
-When published as a CLI:
+The same engine is used by the CLI, a Git pre-push hook, GitHub Actions, GitLab CI, other CI systems, and the programmatic Node API.
 
 ```bash
-npm install --global mergeguard
-```
-
-For a Node repository you can pin it instead:
-
-```bash
-npm install --save-dev mergeguard
+npm install -D mergeguard
 npx mergeguard review
 ```
 
-From this source checkout:
+## Why it exists
+
+Compilers, tests, and formatters do not reliably catch "this change will fail under concurrency" or "this query no longer filters by tenant." MergeGuard sits in front of `git push` and CI so those classes of defect can block the change with a normal process exit code. No MergeGuard server, database, dashboard, GitHub App, or webhook service is required.
+
+## What it catches
+
+High-signal, change-scoped risks, including:
+
+- authorization / route-protection regressions
+- tenant or ownership filter removal
+- check-then-create and read-check-write races
+- missing uniqueness / idempotency around creates and webhooks
+- removed transaction boundaries and non-atomic related writes
+- unbounded deletes or empty-filter updates
+- SQL injection, command injection, dynamic evaluation
+- unsafe deserialization and path traversal
+- XSS / raw HTML sinks where the sink is visible
+- disabled TLS verification
+- async `forEach`, swallowed errors, N+1 query and unbounded fan-out candidates
+- validation removal and insecure framework markers such as `@Public()` / `[AllowAnonymous]`
+
+## What it deliberately does not catch
+
+MergeGuard is not a style linter and will not report:
+
+- semicolons, quotes, import order, or naming taste
+- formatting or line length
+- generic "consider refactoring" advice
+- documentation nags
+- arbitrary function-length opinions
+- subjective AI code-review commentary
+
+It is also not a CVE database, secret scanner, compiler, or test runner.
+
+## Installation
+
+Requires **Node.js 20+** and **Git**. There are **zero runtime npm dependencies**.
 
 ```bash
-node bin/mergeguard.js review
+npm install -D mergeguard
 ```
 
-## Local usage
-
-Review the complete working tree (staged + unstaged + untracked) against `HEAD`:
+Or run once without adding it to a project:
 
 ```bash
-mergeguard review
+npx mergeguard review
 ```
 
-Review staged changes only:
+## 30-second quick start
 
 ```bash
-mergeguard review --staged
+cd your-git-repo
+npx mergeguard review
 ```
 
-Review a branch/PR range:
+That reviews the working tree (staged, unstaged, and untracked) against `HEAD`. Exit `0` means pass. Exit `1` means a blocking finding. Exit `2` means MergeGuard or the environment failed.
+
+## Local review
 
 ```bash
-mergeguard review --base main
-mergeguard review --base origin/main --head HEAD
+npx mergeguard review
+npx mergeguard review --staged
+npx mergeguard review --base origin/main
+npx mergeguard review --base origin/main --head HEAD
+npx mergeguard review --no-ai
 ```
 
-Force deterministic local verification:
-
-```bash
-mergeguard review --no-ai
-```
-
-Machine-readable reports:
-
-```bash
-mergeguard review --format json
-mergeguard review --format sarif --output mergeguard.sarif
-mergeguard review --format gitlab --output gl-code-quality-report.json
-```
-
-Exit codes are stable: `0` means review completed without a blocking finding, `1` means review completed and found a blocking issue, and `2` means MergeGuard/config/runtime itself failed.
+`--no-ai` and `--verifier offline` / `--verifier deterministic` force the built-in verifier.
 
 ## Pre-push hook
 
 ```bash
-mergeguard hook install
+npx mergeguard hook install
+npx mergeguard hook status
+npx mergeguard hook uninstall
 ```
 
-The installer adds a clearly marked MergeGuard block to `.git/hooks/pre-push`. Existing hook content is preserved. On each normal `git push`, MergeGuard reads Git's pre-push refs from stdin and reviews only the outgoing commit range.
+Install is idempotent and will not overwrite an existing pre-push hook. It appends a marked MergeGuard block and respects `core.hooksPath` when set. The hook reads Git's pre-push stdin and reviews the outgoing commit range, including first pushes (diffed against Git's empty tree).
 
-```text
-git push
-   ↓
-pre-push hook
-   ↓
-mergeguard review --push
-   ↓
-PASS → push continues
-BLOCK → push stops
-```
-
-Local Git hooks can always be bypassed with `git push --no-verify`; use CI as the enforcement layer.
-
-Remove or inspect the hook:
+If MergeGuard blocks a push, it tells you how to bypass **only when relevant**:
 
 ```bash
-mergeguard hook status
-mergeguard hook uninstall
+git push --no-verify
 ```
+
+Use CI as the enforcement layer. Local hooks are a convenience, not a security boundary.
 
 ## GitHub Actions
 
-Generate a minimal workflow:
-
 ```bash
-mergeguard ci github
+npx mergeguard ci github --write
 ```
 
-The workflow checks out full history, installs the CLI, and runs the exact same engine against the PR merge-base. Make the MergeGuard job a required status check in branch protection if you want enforcement.
-
-A basic workflow is also included at [`examples/github/mergeguard.yml`](examples/github/mergeguard.yml).
+Or copy [`examples/github/mergeguard.yml`](examples/github/mergeguard.yml). The job checks out full history, installs MergeGuard, reviews `origin/<base>...HEAD`, and can upload SARIF. Make the job a required check if you want enforcement.
 
 ## GitLab CI
 
-Generate a job:
-
 ```bash
-mergeguard ci gitlab
+npx mergeguard ci gitlab --write
 ```
 
-The GitLab form emits Code Quality JSON as an artifact while still using the CLI exit code for blocking. See [`examples/gitlab/mergeguard.yml`](examples/gitlab/mergeguard.yml).
+Or copy [`examples/gitlab/mergeguard.yml`](examples/gitlab/mergeguard.yml). The job writes GitLab Code Quality JSON as an artifact and still uses the CLI exit code to block.
+
+## Other CI
+
+Any runner with Git and Node 20+ can run the same engine:
+
+```bash
+npx mergeguard review --base <base> --head <head>
+```
+
+That works on Jenkins, CircleCI, Azure DevOps, Bitbucket, Buildkite, and custom CI. No provider credentials are required for offline / Laya verification.
 
 ## Configuration
 
-Create `.mergeguard.yml`:
+Zero-config is the default. To pin policy:
 
 ```bash
-mergeguard init
+npx mergeguard init
 ```
 
-Example:
+This writes `.mergeguard.yml` and will not overwrite an existing file unless you pass `--force`.
 
 ```yaml
-version: 1
 fail_on: high
-verifier:
-  engine: auto
-confidence: 0.62
 
-ignore:
-  paths:
-    - node_modules/**
-    - vendor/**
-    - dist/**
-    - generated/**
+exclude:
+  - dist/**
+  - build/**
+  - generated/**
+  - vendor/**
+  - node_modules/**
 
 review:
-  correctness: true
   security: true
+  correctness: true
   concurrency: true
   database: true
-  authorization: true
-  tenant-isolation: true
-  reliability: true
   performance: true
-  api: true
+
+verifier:
+  engine: auto
 ```
 
-`fail_on` can be `critical`, `high`, `medium`, `low`, `info`, or `none`.
+`fail_on` may be `critical`, `high`, `medium`, `low`, `info`, or `none`. Unknown root keys produce a warning. Malformed YAML reports the file path and line. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for defaults and limits.
 
-### Verifiers
+## Output formats
 
-`offline` is deterministic and always available. `auto` uses locally installed Laya when it is available and otherwise falls back to offline verification. `laya` requires Laya and fails if it cannot run. `jev` uses the existing TypeSafe/Jev HTTP API and requires `TYPESAFE_API_KEY` or `JEV_API_KEY`.
+```bash
+npx mergeguard review --format terminal
+npx mergeguard review --format json
+npx mergeguard review --format sarif --output mergeguard.sarif
+npx mergeguard review --format gitlab --output gl-code-quality-report.json
+```
 
-Install Laya locally:
+Machine-readable formats write only the report to stdout (or `--output`). Status goes to stderr so JSON/SARIF/GitLab output stays parseable.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Review completed; no blocking finding |
+| `1` | Review completed; policy blocked the change |
+| `2` | MergeGuard, config, Git, or runtime failure |
+
+## Laya setup
+
+Laya is optional. `auto` (the default) uses a local Laya install when it is importable, otherwise the deterministic verifier. Missing Laya is not an error in `auto` mode.
 
 ```bash
 python -m pip install laya
-mergeguard doctor
-mergeguard review --verifier laya
+npx mergeguard doctor
+npx mergeguard review --verifier laya
 ```
 
-On first model-backed use, Laya may download its checkpoint into the normal local Hugging Face cache. Later runs can use the cached model. MergeGuard communicates with Laya over stdin/stdout via a short-lived local Python process; it does **not** start an HTTP service.
+`--verifier laya` fails with an actionable message if Laya is not available. MergeGuard talks to Laya through a short-lived local Python process (`scripts/laya_bridge.py`) over stdin/stdout. It does not start an HTTP server.
 
-You can select a Python executable in `.mergeguard.yml`:
+On first model-backed use, Laya may download a checkpoint into the normal local Hugging Face cache. Later runs can use that cache. Set `MERGEGUARD_PYTHON` or `laya.python` in config if the default `python3`/`python` is wrong. `MERGEGUARD_LAYA_TIMEOUT_MS` defaults to 180000.
 
-```yaml
-laya:
-  python: /path/to/python
-  model: typed-decisions
-  max_len: 4096
+This repository's tests run a real Laya inference only when Laya is installed; they skip with a precise reason otherwise.
+
+## Optional Jev setup
+
+Jev is opt-in and never required for default operation.
+
+```bash
+export TYPESAFE_API_KEY=...   # or JEV_API_KEY
+npx mergeguard review --verifier jev
 ```
+
+Jev sends candidate evidence to `https://api.typesafe.ai/v1/systemone` unless you override `jev.url`. Secrets are read from the environment and are not printed.
 
 ## Programmatic API
 
-The CLI is only a wrapper around the review engine:
+The CLI is a wrapper. Library users should not parse terminal text.
 
 ```js
 import { review } from "mergeguard";
@@ -222,47 +231,57 @@ const result = await review({
   cwd: process.cwd(),
   base: "origin/main",
   head: "HEAD",
-  verifier: "offline",
 });
 
-if (result.blocking) process.exitCode = 1;
+// result.passed, result.findings, result.summary, result.metadata
+if (!result.passed) process.exitCode = 1;
 ```
 
-This is the integration point for a custom pipeline, build system, IDE extension, or internal developer platform.
+Also exported: `reviewChangeSet`, `loadConfig`, `normalizeConfig`, `renderReport`, `toSarif`, `toGitLabCodeQuality`, `detectLaya`, `VERSION`. Everything else is internal.
 
-## Repository coverage
+## Language-support philosophy
 
-MergeGuard's **execution model is repository-agnostic**: it works from Git diffs and text, so it can run in Node, Python, Java/Kotlin, Go, PHP, Ruby, .NET, Rust, C/C++, SQL/migration, mixed-language, and monorepo repositories.
+MergeGuard **runs on any normal Git repository**. That is not the same as equal deep semantics for every language.
 
-Semantic depth is not identical for every framework. The universal detector layer covers language-independent risks and several language-specific sinks; the context resolver recognizes common manifests/frameworks/ORMs and supplies nearby schema/auth/data-access evidence. New framework-specific detectors can be added without changing the CLI or CI integration.
+```text
+Universal Git/diff layer
+        ↓
+generic language-independent detectors
+        ↓
+language adapters
+        ↓
+framework-specific context adapters
+```
 
-See [`docs/DETECTORS.md`](docs/DETECTORS.md) for the current coverage and limitations.
+JavaScript, TypeScript, Python, Java, Kotlin, Go, C#, PHP, Ruby, and SQL have additional syntax-aware rules. Rust, C, C++, shell, YAML, JSON, Terraform, Dockerfiles, and mixed monorepos still get generic diff, security, database, and context analysis and must not crash merely because a deeper adapter is missing.
 
-## Why this instead of writing a pipeline rule?
+## Limitations
 
-CI is orchestration. A line such as `run: mergeguard review` is easy; the reusable product is everything behind it: Git range handling, changed-line detection, cross-language security/correctness rules, repository-context resolution, semantic verification, deduplication, confidence/severity policy, hook behavior, SARIF/GitLab adapters, and stable exit semantics.
+- Findings are candidates plus a verifier, not proofs.
+- Context is bounded: nearby files, manifests, schemas, and auth/data-access evidence — not a persisted project database.
+- Generated, minified, binary, and ignored paths are skipped; huge diffs are truncated (`max_files` default 300).
+- Local hooks can be bypassed with `--no-verify`.
+- Semantic depth varies by language and framework.
 
-MergeGuard is meant to sit next to your existing compiler, linter, tests, dependency scanner, and SAST tooling—not replace them.
+See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) and [docs/DETECTORS.md](docs/DETECTORS.md).
 
-## Design principles
+## Security and privacy
 
-1. **Local first.** Source code does not need to leave the machine in offline/Laya mode.
-2. **Diff first.** Findings must relate to the change under review.
-3. **Concrete failure modes.** Do not report style opinions as defects.
-4. **High signal over volume.** Suppress ambiguous candidates rather than flooding reviewers.
-5. **One engine everywhere.** Local, pre-push, GitHub, GitLab and custom CI execute the same core.
-6. **No infrastructure tax.** No DB, Redis, worker, web server, dashboard or webhook service is needed.
+Analyzed repository text is treated as untrusted data, never as instructions or executable code. Offline mode makes no network calls. Laya mode stays on the machine aside from Laya/Hugging Face model-cache behavior. Jev mode is explicit and sends candidate context to the configured API.
 
-## Development
+Do not put credentials in `.mergeguard.yml`. See [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
+git clone https://github.com/FitsumMehari/MergeGuard.git
+cd MergeGuard
 npm test
 npm run check
-npm pack --dry-run
 ```
-
-No dependency installation is needed for the test suite on Node 20+.
 
 ## License
 
-Apache-2.0.
+[MIT](LICENSE)

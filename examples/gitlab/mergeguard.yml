@@ -4,10 +4,10 @@ mergeguard:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - npm install --global mergeguard
+    - npm install --save-dev mergeguard
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
   script:
-    - mergeguard review --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --head "$CI_COMMIT_SHA" --format gitlab --output gl-code-quality-report.json
+    - npx mergeguard review --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --head "$CI_COMMIT_SHA" --format gitlab --output gl-code-quality-report.json
   artifacts:
     when: always
     reports:

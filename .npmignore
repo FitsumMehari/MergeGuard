@@ -1,0 +1,17 @@
+.env
+.env.*
+.git
+.github
+.idea
+.vscode
+coverage
+tmp
+*.tgz
+*.log
+*.sarif
+gl-code-quality-report.json
+tests
+TEST_REPORT.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+docs/RELEASING.md

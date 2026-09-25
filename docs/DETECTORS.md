@@ -16,7 +16,7 @@ MergeGuard runs only against changed content/diff regressions and then adds boun
 
 ## Language-aware rules
 
-The generic layer runs in any text Git repository. Additional direct rules currently recognize JavaScript/TypeScript, Python, Java/Kotlin, Go, PHP, Ruby, C#, SQL and common configuration forms. C/C++, Rust and other languages still benefit from generic diff-regression, TLS/SQL/configuration, repository and migration checks, but have fewer syntax-specific rules today.
+The generic layer runs in any text Git repository. Additional direct rules currently recognize JavaScript/TypeScript, Python, Java/Kotlin, Go, PHP, Ruby, C#, SQL and common configuration forms. C/C++, Rust, shell, Terraform, Dockerfiles and other languages still benefit from generic diff-regression, TLS/SQL/configuration, repository and migration checks, but have fewer syntax-specific rules today. `yaml.load` is ignored when `SafeLoader` is present on the same line.
 
 ## Stack/context recognition
 

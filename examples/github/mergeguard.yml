@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   mergeguard:
@@ -16,5 +17,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --global mergeguard
-      - run: mergeguard review --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}"
+      - name: Install MergeGuard
+        run: npm install --save-dev mergeguard
+      - name: Review pull request diff
+        run: npx mergeguard review --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}"
+      - name: Write SARIF
+        if: always()
+        run: npx mergeguard review --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}" --fail-on none --format sarif --output mergeguard.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: mergeguard.sarif

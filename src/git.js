@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { matchesAnyGlob, normalizePath } from "./utils.js";
+import { safeJoin } from "./paths.js";
 
 const ZERO_SHA = /^0+$/;
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const MAX_FILE_BYTES = 2_000_000;
 
 export function git(args, { cwd = process.cwd(), input, allowFailure = false, encoding = "utf8" } = {}) {
   try {
@@ -12,7 +14,8 @@ export function git(args, { cwd = process.cwd(), input, allowFailure = false, en
       input,
       encoding,
       maxBuffer: 64 * 1024 * 1024,
-      stdio: [input === undefined ? "pipe" : "pipe", "pipe", "pipe"],
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
     });
   } catch (error) {
     if (allowFailure) return undefined;
@@ -31,9 +34,21 @@ export function gitAvailable() {
   return Boolean(git(["--version"], { allowFailure: true }));
 }
 
+export function hooksDirectory(root) {
+  const configured = git(["config", "--get", "core.hooksPath"], { cwd: root, allowFailure: true })?.trim();
+  if (configured) {
+    const resolved = configured.startsWith("/") || /^[A-Za-z]:/.test(configured)
+      ? configured
+      : safeJoin(root, configured) || `${root}/${configured.replaceAll("\\", "/")}`;
+    return resolved;
+  }
+  const gitDir = git(["rev-parse", "--git-path", "hooks"], { cwd: root }).trim();
+  return gitDir.startsWith("/") || /^[A-Za-z]:/.test(gitDir) ? gitDir : `${root}/${gitDir}`;
+}
+
 export function resolveReviewScope(root, options = {}) {
   const hasHead = Boolean(git(["rev-parse", "--verify", "HEAD"], { cwd: root, allowFailure: true }));
-  const initialBase = hasHead ? "HEAD" : emptyTree(root);
+  const initialBase = hasHead ? "HEAD" : EMPTY_TREE;
   if (options.push) return resolvePushScope(root, options.pushInput);
   if (options.staged) {
     return {
@@ -48,6 +63,12 @@ export function resolveReviewScope(root, options = {}) {
   if (options.base || options.head) {
     const base = options.base || defaultBaseRef(root);
     const head = options.head || "HEAD";
+    if (!git(["rev-parse", "--verify", base], { cwd: root, allowFailure: true })) {
+      throw new Error(`Unknown Git ref '${base}'. Fetch the base branch or pass an existing --base.`);
+    }
+    if (!git(["rev-parse", "--verify", head], { cwd: root, allowFailure: true })) {
+      throw new Error(`Unknown Git ref '${head}'.`);
+    }
     const mergeBase = git(["merge-base", base, head], { cwd: root, allowFailure: true })?.trim();
     if (!mergeBase) throw new Error(`Could not find a merge-base between ${base} and ${head}`);
     return {
@@ -80,7 +101,7 @@ function resolvePushScope(root, pushInput) {
       const target = remoteDefaultRef(root, remoteName);
       if (target) baseRef = git(["merge-base", localSha, target], { cwd: root, allowFailure: true })?.trim();
     }
-    if (!baseRef) baseRef = emptyTree(root);
+    if (!baseRef) baseRef = EMPTY_TREE;
     return {
       mode: "push",
       label: `${localRef || "local"} → ${remoteRef || "remote"}`,
@@ -91,14 +112,29 @@ function resolvePushScope(root, pushInput) {
     };
   }
 
-  const head = git(["rev-parse", "HEAD"], { cwd: root }).trim();
+  const head = git(["rev-parse", "HEAD"], { cwd: root, allowFailure: true })?.trim();
+  if (!head) {
+    return {
+      mode: "push",
+      label: "initial push",
+      diffArgs: ["diff", "--find-renames", EMPTY_TREE],
+      baseRef: EMPTY_TREE,
+      headKind: "working",
+      headRef: undefined,
+    };
+  }
   const upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], { cwd: root, allowFailure: true })?.trim();
   const target = upstream || defaultBaseRef(root);
   const base = git(["merge-base", head, target], { cwd: root, allowFailure: true })?.trim();
   if (!base) {
-    const parent = git(["rev-parse", "--verify", `${head}^`], { cwd: root, allowFailure: true })?.trim();
-    if (!parent) return { mode: "push", label: "initial push", diffArgs: ["diff", "--find-renames", `${emptyTree(root)}..${head}`], baseRef: emptyTree(root), headKind: "ref", headRef: head };
-    throw new Error("Could not determine the outgoing push range. Configure an upstream or pass the pre-push input through the installed hook.");
+    return {
+      mode: "push",
+      label: "initial push",
+      diffArgs: ["diff", "--find-renames", `${EMPTY_TREE}..${head}`],
+      baseRef: EMPTY_TREE,
+      headKind: "ref",
+      headRef: head,
+    };
   }
   return { mode: "push", label: `${target}..HEAD`, diffArgs: ["diff", "--find-renames", `${base}..${head}`], baseRef: base, headKind: "ref", headRef: head };
 }
@@ -118,7 +154,9 @@ export function defaultBaseRef(root, remote = "origin") {
   for (const candidate of [`${remote}/main`, `${remote}/master`, "main", "master"]) {
     if (git(["rev-parse", "--verify", candidate], { cwd: root, allowFailure: true })) return candidate;
   }
-  return "HEAD^";
+  const parent = git(["rev-parse", "--verify", "HEAD^"], { cwd: root, allowFailure: true })?.trim();
+  if (parent) return "HEAD^";
+  throw new Error("Could not infer a review base. Pass --base <ref> explicitly.");
 }
 
 export function collectChangedFiles(root, scope, { includeUntracked = true, maxFiles = 300, ignore = [] } = {}) {
@@ -126,7 +164,7 @@ export function collectChangedFiles(root, scope, { includeUntracked = true, maxF
   const raw = git(["diff", "--name-status", "-z", ...diffArgs], { cwd: root, encoding: "buffer" });
   const tokens = raw.toString("utf8").split("\0").filter(Boolean);
   const entries = [];
-  for (let i = 0; i < tokens.length;) {
+  for (let i = 0; i < tokens.length; ) {
     const statusToken = tokens[i++];
     const code = statusToken[0];
     if (code === "R" || code === "C") {
@@ -142,11 +180,12 @@ export function collectChangedFiles(root, scope, { includeUntracked = true, maxF
   if (scope.mode === "working" && includeUntracked) {
     const untrackedRaw = git(["ls-files", "--others", "--exclude-standard", "-z"], { cwd: root, encoding: "buffer" });
     for (const path of untrackedRaw.toString("utf8").split("\0").filter(Boolean)) {
-      if (!entries.some((entry) => entry.path === normalizePath(path))) entries.push({ path: normalizePath(path), status: "added", untracked: true });
+      const normalized = normalizePath(path);
+      if (!entries.some((entry) => entry.path === normalized)) entries.push({ path: normalized, status: "added", untracked: true });
     }
   }
 
-  const reviewable = entries.filter((entry) => !matchesAnyGlob(entry.path, ignore));
+  const reviewable = entries.filter((entry) => entry.path && !matchesAnyGlob(entry.path, ignore) && safeJoin(root, entry.path));
   const totalFiles = reviewable.length;
   const ignoredFiles = entries.length - reviewable.length;
   const limited = reviewable.slice(0, maxFiles);
@@ -178,22 +217,23 @@ function readHeadContent(root, scope, path) {
 }
 
 function safeReadWorking(root, path) {
-  const full = resolve(root, path);
-  if (!existsSync(full)) return undefined;
+  const full = safeJoin(root, path);
+  if (!full || !existsSync(full)) return undefined;
   try {
     const buffer = readFileSync(full);
     if (buffer.includes(0)) return undefined;
-    return buffer.length > 2_000_000 ? buffer.subarray(0, 2_000_000).toString("utf8") : buffer.toString("utf8");
+    return buffer.length > MAX_FILE_BYTES ? buffer.subarray(0, MAX_FILE_BYTES).toString("utf8") : buffer.toString("utf8");
   } catch {
     return undefined;
   }
 }
 
 function gitShow(root, ref, path, index = false) {
+  if (!safeJoin(root, path)) return undefined;
   const spec = index ? `:${path}` : `${ref}:${path}`;
   const result = git(["show", spec], { cwd: root, allowFailure: true, encoding: "buffer" });
   if (!result || result.includes(0)) return undefined;
-  return result.length > 2_000_000 ? result.subarray(0, 2_000_000).toString("utf8") : result.toString("utf8");
+  return result.length > MAX_FILE_BYTES ? result.subarray(0, MAX_FILE_BYTES).toString("utf8") : result.toString("utf8");
 }
 
 function createAddedPatch(path, content) {
@@ -218,11 +258,12 @@ export function repositoryInfo(root) {
   return { root, headSha, branch, remoteUrl };
 }
 
-export function trackedFiles(root) {
+export function trackedFiles(root, { limit = 4000 } = {}) {
   const raw = git(["ls-files", "-z"], { cwd: root, encoding: "buffer" });
-  return raw.toString("utf8").split("\0").filter(Boolean).map(normalizePath);
+  const files = raw.toString("utf8").split("\0").filter(Boolean).map(normalizePath);
+  return files.slice(0, limit);
 }
 
-function emptyTree(root) {
-  return git(["mktree"], { cwd: root, input: "" }).trim();
+export function emptyTree() {
+  return EMPTY_TREE;
 }

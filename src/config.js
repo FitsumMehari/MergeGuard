@@ -13,7 +13,7 @@ export const defaultConfig = Object.freeze({
   contextChars: 18_000,
   ignore: [
     "node_modules/**", "vendor/**", "dist/**", "build/**", "coverage/**", ".next/**", ".git/**",
-    "**/*.min.js", "**/*.map", "**/generated/**", "**/fixtures/**", "**/snapshots/**",
+    "**/*.min.js", "**/*.map", "**/generated/**",
   ],
   categories: Object.fromEntries(CATEGORIES.map((category) => [category, true])),
   laya: { python: undefined, model: undefined, maxLen: 4096 },
@@ -25,7 +25,7 @@ export function loadConfig(root, explicitPath) {
     ? [resolve(root, explicitPath)]
     : [resolve(root, ".mergeguard.yml"), resolve(root, ".mergeguard.yaml"), resolve(root, ".mergeguard.json")];
   const path = candidates.find(existsSync);
-  if (!path) return { config: structuredClone(defaultConfig), path: undefined };
+  if (!path) return { config: structuredClone(defaultConfig), path: undefined, warnings: [] };
   let parsed;
   const text = readFileSync(path, "utf8");
   try {
@@ -33,7 +33,7 @@ export function loadConfig(root, explicitPath) {
   } catch (error) {
     throw new Error(`Could not parse ${path}: ${error.message}`);
   }
-  return { config: normalizeConfig(parsed), path };
+  return { config: normalizeConfig(parsed), path, warnings: unknownKeyWarnings(parsed, path) };
 }
 
 export function normalizeConfig(input = {}) {
@@ -44,8 +44,9 @@ export function normalizeConfig(input = {}) {
     config.failOn = failOn;
   }
   if (input.verifier !== undefined) {
-    const verifier = typeof input.verifier === "object" ? input.verifier.engine : input.verifier;
-    if (verifier && !["auto", "offline", "laya", "jev"].includes(verifier)) throw new Error("verifier must be auto, offline, laya, or jev");
+    let verifier = typeof input.verifier === "object" ? input.verifier.engine : input.verifier;
+    if (verifier === "deterministic") verifier = "offline";
+    if (verifier && !["auto", "offline", "laya", "jev"].includes(verifier)) throw new Error("verifier must be auto, offline, deterministic, laya, or jev");
     if (verifier) config.verifier = verifier;
   }
   if (input.confidence !== undefined) {
@@ -61,7 +62,7 @@ export function normalizeConfig(input = {}) {
   const contextChars = Number(input.context_chars ?? input.contextChars);
   if (Number.isInteger(contextChars) && contextChars > 0) config.contextChars = Math.min(contextChars, 200_000);
 
-  const ignore = input.ignore?.paths ?? input.ignore;
+  const ignore = input.exclude?.paths ?? input.exclude ?? input.ignore?.paths ?? input.ignore;
   if (Array.isArray(ignore)) config.ignore = ignore.filter((x) => typeof x === "string" && x.trim());
 
   const review = input.review ?? input.categories;
@@ -87,7 +88,46 @@ export function normalizeConfig(input = {}) {
 export function writeDefaultConfig(root, { force = false } = {}) {
   const path = resolve(root, ".mergeguard.yml");
   if (existsSync(path) && !force) throw new Error(`${path} already exists (use --force to replace it)`);
-  const text = `# MergeGuard configuration\nversion: 1\nfail_on: high\nverifier:\n  engine: auto\n\nconfidence: 0.62\n\nignore:\n  paths:\n    - node_modules/**\n    - vendor/**\n    - dist/**\n    - build/**\n    - coverage/**\n    - generated/**\n\nreview:\n  correctness: true\n  security: true\n  concurrency: true\n  database: true\n  authorization: true\n  tenant-isolation: true\n  reliability: true\n  performance: true\n  api: true\n`;
+  const text = `# MergeGuard configuration
+version: 1
+fail_on: high
+verifier:
+  engine: auto
+
+confidence: 0.62
+
+exclude:
+  - node_modules/**
+  - vendor/**
+  - dist/**
+  - build/**
+  - coverage/**
+  - generated/**
+
+review:
+  correctness: true
+  security: true
+  concurrency: true
+  database: true
+  authorization: true
+  tenant-isolation: true
+  reliability: true
+  performance: true
+  api: true
+`;
   writeFileSync(path, text);
   return path;
+}
+
+const KNOWN_ROOT_KEYS = new Set([
+  "version", "fail_on", "failOn", "verifier", "confidence", "ignore", "exclude", "review",
+  "categories", "laya", "jev", "max_files", "maxFiles", "max_candidates", "maxCandidates",
+  "context_files", "contextFiles", "context_chars", "contextChars",
+]);
+
+function unknownKeyWarnings(parsed, path) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  return Object.keys(parsed)
+    .filter((key) => !KNOWN_ROOT_KEYS.has(key))
+    .map((key) => `${path}: unknown config key '${key}' was ignored`);
 }

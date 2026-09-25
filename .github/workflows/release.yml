@@ -1,0 +1,29 @@
+# Publishes to npm via trusted publishing (OIDC) when a GitHub Release is published.
+# This workflow is inert until npm trusted publishing is configured for this
+# repository. It never stores an npm auth token.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Check
+        run: npm run check
+      - name: Pack
+        run: npm pack --dry-run
+      - name: Publish
+        run: npm publish --provenance --access public

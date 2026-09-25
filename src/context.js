@@ -1,7 +1,7 @@
-import { dirname, extname, join, resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { dirname, extname } from "node:path";
 import { trackedFiles } from "./git.js";
 import { languageForPath } from "./languages.js";
+import { safeJoin } from "./paths.js";
 import { matchesAnyGlob, normalizePath, readText, truncate } from "./utils.js";
 
 const HIGH_SIGNAL = /(^|\/)(package\.json|pyproject\.toml|requirements(?:-[^/]+)?\.txt|poetry\.lock|go\.mod|go\.sum|pom\.xml|build\.gradle(?:\.kts)?|composer\.json|Gemfile|Cargo\.toml|[^/]+\.csproj|[^/]+\.sln|schema\.prisma|drizzle\.config\.[jt]s|[^/]*migration[^/]*|migrations?|db|database|auth|security|guards?|policies?|middleware)(\/|$)|\.sql$/i;
@@ -11,7 +11,7 @@ const AUTH_MARKERS = ["UseGuards", "Authorize", "PreAuthorize", "Secured", "Requ
 export function buildRepositoryContext(root, changedFiles, config) {
   const changedPaths = changedFiles.map((file) => normalizePath(file.path));
   const changedDirs = new Set(changedPaths.map((path) => dirname(path)));
-  const allTracked = trackedFiles(root).filter((path) => !matchesAnyGlob(path, config.ignore));
+  const allTracked = trackedFiles(root, { limit: 4000 }).filter((path) => !matchesAnyGlob(path, config.ignore));
   const scored = [];
   for (const path of allTracked) {
     let score = 0;
@@ -27,7 +27,8 @@ export function buildRepositoryContext(root, changedFiles, config) {
   const files = new Map();
   for (const item of selected) {
     const changed = changedFiles.find((file) => file.path === item.path);
-    const content = changed?.headContent ?? readText(resolve(root, item.path), 250_000);
+    const full = safeJoin(root, item.path);
+    const content = changed?.headContent ?? (full ? readText(full, 250_000) : undefined);
     if (typeof content === "string") files.set(item.path, content);
   }
   for (const changed of changedFiles) {
