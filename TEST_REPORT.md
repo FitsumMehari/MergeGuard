@@ -1,54 +1,33 @@
-# MergeGuard v1.1 offline test report
+# MergeGuard 2.0 validation report
 
-Tested without live GitHub, GitLab, PostgreSQL, Redis, npm-registry, or TypeSafe credentials.
+Validated on Node.js 22.16.0 and Git 2.47.3.
 
-## Passed
+## Automated suite
 
-- source syntax/transpile scan across all TypeScript/TSX sources
-- repository-intelligence fixture covering monorepo/framework/DB/Redis/Nginx/Docker discovery and changed-file overlays
-- 8 targeted deterministic detector fixtures
-- clean documentation change produces no code candidate
-- offline no-Jev-key verification path
-- mocked Jev structured request/response path with no network call
-- runtime source scan for OpenAI, Anthropic and Google Generative Language endpoint/key patterns
-- production config source syntax checks
-- graceful-shutdown, readiness, retry/backoff and idempotency paths reviewed structurally
-- ZIP integrity validation
+`npm run check` passes with 15/15 tests covering:
 
-## Production-hardening changes reviewed
+- zero-dependency source syntax validation;
+- `.mergeguard.yml` parsing and recursive ignore globs;
+- JavaScript, Python, Java, Go, PHP, Ruby and C# high-signal detectors;
+- transaction-boundary regression detection;
+- repositories with no commits yet;
+- working-tree, staged, base/head and pre-push Git scopes;
+- first push to a new remote (empty-tree base);
+- non-destructive pre-push hook install/uninstall;
+- race, TLS and tenant-isolation findings;
+- blocking vs non-blocking exit codes;
+- JSON, SARIF and GitLab Code Quality serialization.
 
-- API data endpoints require a bearer key in production
-- dashboard requires Basic authentication in production
-- webhook signatures/tokens are validated before enqueue
-- queue insertion uses retry/backoff and head-SHA job deduplication
-- analysis runs are unique per change-request/head SHA
-- GitHub/GitLab HTTP calls have timeout + bounded retry helpers
-- Jev calls have an explicit timeout
-- API liveness and DB/Redis readiness are separate
-- API and worker close resources on SIGTERM/SIGINT
-- Prisma production migration added for analysis idempotency
+## Package/install smoke test
 
-## Not live-tested
+The project was packed with `npm pack`, installed from the generated tarball into a fresh unrelated Git repository, and invoked through `node_modules/.bin/mergeguard`.
 
-- TypeSafe/Jev network/API compatibility with a real account/key
-- GitHub installation-token exchange, repository indexing and Check Run publishing against a real repository
-- GitLab repository indexing and MR note publishing against a real repository
-- Prisma migrations against a live PostgreSQL instance
-- BullMQ against live Redis
-- Railway/Render deployment
-- full `pnpm install`, typecheck and Next.js production build, because the npm registry was unavailable from this build environment
+The installed CLI successfully blocked a deliberately introduced TLS-verification defect.
 
-The repository includes CI and service Dockerfiles so these dependency-backed checks run in an environment with registry access.
+## Real pre-push smoke test
 
-## v1.3 documentation / lifecycle validation
+The packed artifact was installed into a fresh repository, `mergeguard hook install` created the real `.git/hooks/pre-push` integration, and the hook was invoked with Git-format pre-push stdin containing explicit local and remote SHAs. It reviewed exactly the outgoing commit range, detected an introduced `eval(input)` defect, and exited with code `1`, blocking the simulated push.
 
-Added and checked:
+## Laya status
 
-- `start.sh` Bash syntax (`bash -n`): PASS
-- `start.sh help`: PASS
-- `docker-compose.prod.yml` YAML parse: PASS
-- existing `docker-compose.yml` YAML parse: PASS
-- Markdown local-link check across project docs: PASS
-- required self-serve docs present: `QUICK_START.md`, `GITLAB_SETUP.md`, `GITHUB_SETUP.md`, `FIRST_LIVE_TEST.md`
-
-The build environment used for this documentation/lifecycle pass does not have the Docker CLI installed, so `docker compose config` and live container startup were not executed here. The Compose files were syntax-parsed and the script was shell-syntax checked; operators should run `./start.sh dev up` / `./start.sh prod up` in an environment with Docker Compose v2 for the integration test described in `docs/FIRST_LIVE_TEST.md`.
+The included Python bridge passes Python bytecode compilation and follows Laya's current `Router.predict(state, questions, ...)` interface. Laya itself was not installed in the build environment, so an actual model checkpoint inference was not executed here. `mergeguard doctor` correctly reports this and the default `auto` mode falls back to deterministic verification. Explicit `--verifier laya` fails clearly when Laya is unavailable rather than silently pretending model verification occurred.

@@ -1,331 +1,268 @@
-# MergeGuard v1.1 — Jev-only, repository-aware PR/MR review
+# MergeGuard
 
-MergeGuard reviews **GitHub Pull Requests** and **GitLab Merge Requests** for bugs, security problems, concurrency hazards, database mistakes, performance/scalability risks, reliability issues and maintainability concerns.
-
-**Jev is the only AI provider.** Everything else is deterministic/local analysis: TypeScript AST parsing, pattern detectors, repository indexing, framework/infra discovery, import graphs, database/schema extraction and risk aggregation.
-
-
-## Documentation
-
-Start with these guides:
-
-- [Quick start](docs/QUICK_START.md)
-- [GitLab setup](docs/GITLAB_SETUP.md)
-- [GitHub setup](docs/GITHUB_SETUP.md)
-- [First live test](docs/FIRST_LIVE_TEST.md)
-- [Full documentation index](docs/README.md)
-
-The project includes a full documentation set under [`docs/`](docs/README.md). Start with:
-
-- [`docs/README.md`](docs/README.md) — documentation index
-- [`docs/FEATURES.md`](docs/FEATURES.md) — supported features and detector families
-- [`docs/USAGE.md`](docs/USAGE.md) — GitHub/GitLab workflow
-- [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md) — run the complete stack on your own server
-- [`docs/EXAMPLES.md`](docs/EXAMPLES.md) — realistic review cases
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system internals and Project Brain
-- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — runtime and repository configuration
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — operational/debugging guide
-
-## How it works
+**Local-first semantic code review for Git diffs.** MergeGuard runs before a push or in CI, looks for concrete runtime/security/data-integrity regressions, resolves nearby repository context, and returns a normal process exit code. It does not require a MergeGuard server, database, queue, dashboard, GitHub App, or GitLab webhook.
 
 ```text
-FIRST REVIEW AGAINST A BASE SHA
-GitHub/GitLab repository
-        ↓
-repository tree + bounded source fetch
-        ↓
-Repository Intelligence index (cached in PostgreSQL)
-        ├─ workspace / monorepo packages
-        ├─ NestJS / Next.js detection
-        ├─ import + reverse-import graph
-        ├─ Nest routes + guards
-        ├─ Prisma models / constraints / indexes
-        ├─ PostgreSQL / MariaDB detection
-        ├─ Redis/BullMQ detection
-        └─ Docker / Compose / Nginx ports + upstreams
-
-EVERY PR/MR UPDATE
-changed files
-        ↓
-overlay changes onto cached base model
-        ↓
-local detectors + relevant repository subgraph
-        ↓
-Jev structured verification
-        ↓
-confidence filtering + risk aggregation
-        ↓
-GitHub Check / GitLab MR note + dashboard
+Git diff
+  ↓
+MergeGuard
+  ├─ high-signal diff detectors
+  ├─ repository/context resolver
+  ├─ deterministic verifier (always available)
+  └─ optional local Laya verifier
+  ↓
+terminal / JSON / SARIF / GitLab Code Quality
+  ↓
+PASS (0) / BLOCK (1)
 ```
 
-The index is keyed by the **base commit SHA**, so repeated pushes to the same PR/MR reuse the same architecture model. Changed files are overlaid in memory before review, so newly added routes/configuration are still understood immediately.
+## What it catches
 
-## Stack support
+MergeGuard is intentionally not a formatting linter. It targets changes with a plausible failure mode, including:
 
-The current repository-intelligence layer is designed primarily for the stack this project targets:
+- concurrency races such as check-then-create and read-check-write;
+- transaction removal and multi-write partial-success risks;
+- tenant/organization/ownership predicates removed from data access;
+- authorization guards/policies removed or anonymous access introduced;
+- unsafe SQL construction, shell execution, raw HTML sinks and path traversal candidates;
+- disabled TLS verification and unsafe native deserialization;
+- webhook side effects without visible idempotency protection;
+- destructive or risky database migrations;
+- broad deletes/updates;
+- async `forEach`, swallowed exceptions, unsafe retry loops;
+- N+1 query candidates and unbounded async fan-out;
+- repository-aware checks for common Node, Python, Java/Kotlin, Go, PHP, Ruby, .NET and Rust stacks.
 
-- TypeScript / JavaScript
-- monorepos (pnpm, npm/yarn, Lerna, Nx, Turborepo, Nest)
-- NestJS (controllers, WebSocket gateways, `APP_GUARD`, `@Public()`)
-- Next.js App Router route handlers
-- TypeORM entities and Prisma, plus generic Drizzle/SQL signals
-- PostgreSQL and MariaDB/MySQL detection
-- Redis / ioredis / BullMQ discovery
-- Docker / Docker Compose
-- Nginx
-
-The core is not tied to those frameworks; unsupported files still participate in path/diff/static analysis when a detector understands them.
-
-## Repository-aware examples
-
-MergeGuard can reason with repository facts instead of reviewing isolated lines. Examples:
-
-- A NestJS `/:id` route added without a visible guard in a repository that normally uses guards becomes an authorization candidate for Jev to verify.
-- A repository that consistently uses `organizationId`/`tenantId` can flag a changed ORM query that appears to omit tenant scoping.
-- Nginx upstream ports can be compared with application/Docker listener ports.
-- Prisma unique constraints and indexes are included in the project model so Jev can suppress race/database warnings when a concrete protection exists.
-- Import and reverse-import edges identify nearby files and likely blast radius without sending the entire monorepo to Jev.
-
-## AI and cost model
-
-Only this credential is used for AI:
-
-```env
-TYPESAFE_API_KEY=...
-JEV_API_URL=https://api.typesafe.ai/v1/systemone
-JEV_MODEL=jev-latest
-```
-
-There is no OpenAI, Anthropic, Gemini, or other generative-AI fallback. If `TYPESAFE_API_KEY` is absent, deterministic detectors still work in a conservative offline mode for development/testing. In production set `REQUIRE_JEV=true` if semantic verification must never run without Jev. In production set `REQUIRE_JEV=true` if semantic verification must never run without Jev.
-
-You still pay ordinary infrastructure costs for PostgreSQL, Redis and the API/worker/web services. Repository indexing consumes GitHub/GitLab API bandwidth and worker CPU/memory, but it does not call another AI service.
-
-## Latency strategy
-
-Repository understanding is deliberately **not rebuilt on every push**.
-
-- First PR/MR against an unseen base SHA: bounded repository index build.
-- Later pushes with the same base SHA: reuse the cached index and overlay only changed files.
-- Jev calls are bounded with `JEV_CONCURRENCY`.
-- Repository indexing limits file count, file size and fetch concurrency.
-- Each finding receives repository facts plus relevant paths rather than the entire repository contents.
-
-Tune these values for very large monorepos:
-
-```env
-INDEX_MAX_FILES=800
-INDEX_MAX_FILE_BYTES=120000
-INDEX_MAX_FILE_CHARS=120000
-INDEX_FETCH_CONCURRENCY=12
-INDEX_MAX_TREE_PAGES=80
-MAX_RELATED_FILES=50
-JEV_CONCURRENCY=6
-```
-
-## Detector families
-
-The deterministic engine currently includes 54+ checks covering representative classes such as:
-
-- async `forEach` / async control-flow mistakes
-- check-then-create and read-check-write race candidates
-- missing transaction candidates
-- unsafe/interpolated SQL
-- dynamic execution / shell execution
-- HTML injection sinks / path traversal candidates
-- JWT decode-without-obvious-verification
-- TLS verification disabled
-- sensitive logging
-- N+1 / sequential I/O patterns
-- unbounded `Promise.all`
-- sync Node.js I/O
-- unbounded collection growth / pagination risks
-- destructive or unsafe migrations
-- swallowed exceptions / retry hazards
-- TypeScript non-null assertions / unsafe casts
-- deep nesting / branch-heavy maintainability candidates
-
-A detector creates a **candidate**, not a claim of proof. Jev then answers structured questions about plausibility, reachability, existing protection, impact and whether the issue is worth reporting.
+It deliberately avoids style noise such as semicolons, naming preferences, import ordering, line length, generic "refactor this" comments, and documentation nags.
 
 ## Requirements
 
-- Node.js 22+
-- pnpm 10+
-- PostgreSQL
-- Redis
-- TypeSafe/Jev API key for semantic verification
-- GitHub App credentials and/or GitLab token
+- Git
+- Node.js 20+
 
-## Quick start
+There are **zero npm runtime dependencies**. Laya is optional and runs as a local Python process when installed; no model server is required.
 
-```bash
-cp .env.example .env
-docker compose up -d
-corepack enable
-pnpm install
-pnpm db:generate
-pnpm db:migrate
-pnpm build
-pnpm test:offline
-```
+## Install
 
-Run:
+When published as a CLI:
 
 ```bash
-pnpm --filter @mergeguard/api dev
-pnpm --filter @mergeguard/worker dev
-pnpm --filter @mergeguard/web dev
+npm install --global mergeguard
 ```
 
-Dashboard: `http://localhost:3000`
+For a Node repository you can pin it instead:
 
-For production, configure `DASHBOARD_API_KEY`, `DASHBOARD_USER`, and `DASHBOARD_PASSWORD`; the API and dashboard refuse unprotected production operation.
+```bash
+npm install --save-dev mergeguard
+npx mergeguard review
+```
 
-API liveness: `http://localhost:4000/health/live`
+From this source checkout:
 
-API readiness: `http://localhost:4000/health/ready`
+```bash
+node bin/mergeguard.js review
+```
 
+## Local usage
 
-## Production hardening in v1.1
+Review the complete working tree (staged + unstaged + untracked) against `HEAD`:
 
-The production-facing services now include:
+```bash
+mergeguard review
+```
 
-- validated environment configuration and bounded numeric limits
-- authenticated dashboard API plus dashboard Basic authentication
-- distinct liveness/readiness probes
-- BullMQ retry/backoff defaults
-- PR/MR head-SHA job deduplication and DB-level analysis idempotency
-- bounded HTTP timeouts/retries for GitHub/GitLab
-- Jev request timeout
-- graceful API/worker shutdown
-- security-oriented response headers
-- service-specific Dockerfiles for API, worker and web
-- committed Prisma production migrations
-- CI workflow for typecheck, offline tests and build
+Review staged changes only:
 
-See `docs/DEPLOYMENT.md` for the recommended Railway production topology and exact service variables.
+```bash
+mergeguard review --staged
+```
 
-## GitHub App
+Review a branch/PR range:
 
-Webhook URL:
+```bash
+mergeguard review --base main
+mergeguard review --base origin/main --head HEAD
+```
+
+Force deterministic local verification:
+
+```bash
+mergeguard review --no-ai
+```
+
+Machine-readable reports:
+
+```bash
+mergeguard review --format json
+mergeguard review --format sarif --output mergeguard.sarif
+mergeguard review --format gitlab --output gl-code-quality-report.json
+```
+
+Exit codes are stable: `0` means review completed without a blocking finding, `1` means review completed and found a blocking issue, and `2` means MergeGuard/config/runtime itself failed.
+
+## Pre-push hook
+
+```bash
+mergeguard hook install
+```
+
+The installer adds a clearly marked MergeGuard block to `.git/hooks/pre-push`. Existing hook content is preserved. On each normal `git push`, MergeGuard reads Git's pre-push refs from stdin and reviews only the outgoing commit range.
 
 ```text
-https://YOUR_API_HOST/webhooks/github
+git push
+   ↓
+pre-push hook
+   ↓
+mergeguard review --push
+   ↓
+PASS → push continues
+BLOCK → push stops
 ```
 
-Subscribe to Pull Request events. MergeGuard handles `opened`, `reopened`, `synchronize`, and `ready_for_review`.
+Local Git hooks can always be bypassed with `git push --no-verify`; use CI as the enforcement layer.
 
-Typical permissions:
-
-- Metadata: read
-- Contents: read
-- Pull requests: read
-- Checks: write
-
-Environment:
-
-```env
-GITHUB_APP_ID=
-GITHUB_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-GITHUB_WEBHOOK_SECRET=
-```
-
-GitHub webhook HMAC validation uses the exact raw request body.
-
-## GitLab
-
-Webhook URL:
-
-```text
-https://YOUR_API_HOST/webhooks/gitlab
-```
-
-Enable merge request events and configure:
-
-```env
-GITLAB_BASE_URL=https://gitlab.com
-GITLAB_TOKEN=
-GITLAB_WEBHOOK_SECRET=
-```
-
-## Repository intelligence API
-
-The latest persisted project model for a repository can be inspected with:
-
-```text
-GET /api/repositories/:repositoryId/index
-```
-
-It returns the base SHA, indexed file count, generated timestamp and structured model.
-
-## Database
-
-Prisma schema and an initial PostgreSQL migration are included. For development:
+Remove or inspect the hook:
 
 ```bash
-pnpm db:migrate
+mergeguard hook status
+mergeguard hook uninstall
 ```
 
-For an already prepared production database/migration workflow:
+## GitHub Actions
+
+Generate a minimal workflow:
 
 ```bash
-pnpm --filter @mergeguard/db prisma:deploy
+mergeguard ci github
 ```
 
-## Offline tests
+The workflow checks out full history, installs the CLI, and runs the exact same engine against the PR merge-base. Make the MergeGuard job a required status check in branch protection if you want enforcement.
+
+A basic workflow is also included at [`examples/github/mergeguard.yml`](examples/github/mergeguard.yml).
+
+## GitLab CI
+
+Generate a job:
 
 ```bash
-pnpm test:offline
+mergeguard ci gitlab
 ```
 
-The included offline tests do not require Jev, GitHub, GitLab, PostgreSQL or Redis credentials. They exercise detector fixtures, mocked Jev structured verification, repository-intelligence discovery/graph behavior, source syntax/transpilation, and a scan for forbidden generative-AI provider endpoints.
+The GitLab form emits Code Quality JSON as an artifact while still using the CLI exit code for blocking. See [`examples/gitlab/mergeguard.yml`](examples/gitlab/mergeguard.yml).
 
-See `TEST_REPORT.md` for the exact scope.
+## Configuration
 
-## Important accuracy boundary
-
-MergeGuard is a review assistant, not a proof system. Repository-aware indexing materially reduces isolated-file false positives, but it does not yet provide complete interprocedural taint analysis or mathematically prove the absence of bugs. A clean report must never be treated as proof that a PR is safe.
-
-For very large repositories, `INDEX_MAX_FILES` intentionally caps the indexed source set. High-signal config files and files near changed package roots are prioritized first.
-
-## Repository layout
-
-```text
-apps/
-  api/          webhook/API service
-  worker/       GitHub/GitLab adapters, repository indexing, review pipeline
-  web/          dashboard
-packages/
-  analyzer/     deterministic + TypeScript AST detectors
-  core/         finding/risk domain model
-  repo-intel/   Project Brain: stack, graph, routes, DB, Redis, Docker/Nginx
-  providers/    Jev-only semantic verification
-  db/           Prisma/PostgreSQL persistence
-  policy/       .mergeguard.yml review configuration parser
-tests/
-  detectors.mjs
-  repo-intel.mjs
-  jev-mock.mjs
-  syntax-check.cjs
-```
-
-See `SECURITY.md` for deployment and trust-boundary guidance.
-
-
-## One-command lifecycle
-
-Use `start.sh` instead of typing raw Docker Compose commands:
+Create `.mergeguard.yml`:
 
 ```bash
-./start.sh dev up
-./start.sh dev stop
-./start.sh dev down
-./start.sh prod up
-./start.sh prod stop
-./start.sh prod down
-./start.sh prod status
-./start.sh prod health
-./start.sh prod logs worker
-./start.sh test
+mergeguard init
 ```
 
-Run `./start.sh help` for the complete command list.
+Example:
+
+```yaml
+version: 1
+fail_on: high
+verifier:
+  engine: auto
+confidence: 0.62
+
+ignore:
+  paths:
+    - node_modules/**
+    - vendor/**
+    - dist/**
+    - generated/**
+
+review:
+  correctness: true
+  security: true
+  concurrency: true
+  database: true
+  authorization: true
+  tenant-isolation: true
+  reliability: true
+  performance: true
+  api: true
+```
+
+`fail_on` can be `critical`, `high`, `medium`, `low`, `info`, or `none`.
+
+### Verifiers
+
+`offline` is deterministic and always available. `auto` uses locally installed Laya when it is available and otherwise falls back to offline verification. `laya` requires Laya and fails if it cannot run. `jev` uses the existing TypeSafe/Jev HTTP API and requires `TYPESAFE_API_KEY` or `JEV_API_KEY`.
+
+Install Laya locally:
+
+```bash
+python -m pip install laya
+mergeguard doctor
+mergeguard review --verifier laya
+```
+
+On first model-backed use, Laya may download its checkpoint into the normal local Hugging Face cache. Later runs can use the cached model. MergeGuard communicates with Laya over stdin/stdout via a short-lived local Python process; it does **not** start an HTTP service.
+
+You can select a Python executable in `.mergeguard.yml`:
+
+```yaml
+laya:
+  python: /path/to/python
+  model: typed-decisions
+  max_len: 4096
+```
+
+## Programmatic API
+
+The CLI is only a wrapper around the review engine:
+
+```js
+import { review } from "mergeguard";
+
+const result = await review({
+  cwd: process.cwd(),
+  base: "origin/main",
+  head: "HEAD",
+  verifier: "offline",
+});
+
+if (result.blocking) process.exitCode = 1;
+```
+
+This is the integration point for a custom pipeline, build system, IDE extension, or internal developer platform.
+
+## Repository coverage
+
+MergeGuard's **execution model is repository-agnostic**: it works from Git diffs and text, so it can run in Node, Python, Java/Kotlin, Go, PHP, Ruby, .NET, Rust, C/C++, SQL/migration, mixed-language, and monorepo repositories.
+
+Semantic depth is not identical for every framework. The universal detector layer covers language-independent risks and several language-specific sinks; the context resolver recognizes common manifests/frameworks/ORMs and supplies nearby schema/auth/data-access evidence. New framework-specific detectors can be added without changing the CLI or CI integration.
+
+See [`docs/DETECTORS.md`](docs/DETECTORS.md) for the current coverage and limitations.
+
+## Why this instead of writing a pipeline rule?
+
+CI is orchestration. A line such as `run: mergeguard review` is easy; the reusable product is everything behind it: Git range handling, changed-line detection, cross-language security/correctness rules, repository-context resolution, semantic verification, deduplication, confidence/severity policy, hook behavior, SARIF/GitLab adapters, and stable exit semantics.
+
+MergeGuard is meant to sit next to your existing compiler, linter, tests, dependency scanner, and SAST tooling—not replace them.
+
+## Design principles
+
+1. **Local first.** Source code does not need to leave the machine in offline/Laya mode.
+2. **Diff first.** Findings must relate to the change under review.
+3. **Concrete failure modes.** Do not report style opinions as defects.
+4. **High signal over volume.** Suppress ambiguous candidates rather than flooding reviewers.
+5. **One engine everywhere.** Local, pre-push, GitHub, GitLab and custom CI execute the same core.
+6. **No infrastructure tax.** No DB, Redis, worker, web server, dashboard or webhook service is needed.
+
+## Development
+
+```bash
+npm test
+npm run check
+npm pack --dry-run
+```
+
+No dependency installation is needed for the test suite on Node 20+.
+
+## License
+
+Apache-2.0.

@@ -1,0 +1,20 @@
+name: MergeGuard
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  mergeguard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --global mergeguard
+      - run: mergeguard review --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}"
