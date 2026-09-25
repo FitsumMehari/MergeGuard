@@ -1,5 +1,5 @@
 {
-  "name": "mergeguard",
+  "name": "@fitsummehari/mergeguard",
   "version": "0.1.0",
   "description": "Local-first semantic code-change gate that reviews Git diffs before push or merge",
   "type": "module",
@@ -19,6 +19,7 @@
     "docs/CONFIGURATION.md",
     "docs/DETECTORS.md",
     "docs/INTEGRATIONS.md",
+    "docs/LAYA.md",
     "docs/LIMITATIONS.md",
     "docs/MIGRATION_FROM_V1.md",
     "examples",

@@ -5,6 +5,32 @@ import { clamp01 } from "../utils.js";
 
 const bridgePath = fileURLToPath(new URL("../../scripts/laya_bridge.py", import.meta.url));
 
+export const LAYA_MISSING_MESSAGE = `Laya verification was requested but Laya is not installed.
+
+Install:
+  python -m pip install laya
+
+Then verify:
+  mergeguard doctor
+
+Or use:
+  mergeguard review --verifier offline`;
+
+export function detectPython(config = { laya: {} }) {
+  for (const spec of pythonCommands(config)) {
+    const check = spawnSync(spec.command, [...spec.prefix, "--version"], {
+      encoding: "utf8",
+      timeout: 5000,
+      windowsHide: true,
+    });
+    const text = `${check.stdout || ""}${check.stderr || ""}`.trim();
+    if (check.status === 0 && /python/i.test(text)) {
+      return { available: true, command: spec.command, prefix: spec.prefix, version: text.split("\n")[0] };
+    }
+  }
+  return { available: false };
+}
+
 export function detectLaya(config = { laya: {} }) {
   for (const spec of pythonCommands(config)) {
     const check = spawnSync(spec.command, [...spec.prefix, "-c", "import laya; print(getattr(laya, '__version__', 'installed'))"], {
@@ -20,7 +46,7 @@ export function detectLaya(config = { laya: {} }) {
 export function verifyWithLaya(items, config) {
   const detected = detectLaya(config);
   if (!detected.available) {
-    throw new Error('Laya is not installed. Install Python 3.10+ and run "python -m pip install laya", or use --verifier offline.');
+    throw new Error(LAYA_MISSING_MESSAGE);
   }
   const payload = {
     model: config.laya?.model || null,

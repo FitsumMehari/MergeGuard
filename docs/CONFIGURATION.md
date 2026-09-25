@@ -13,7 +13,7 @@ Or `--config PATH`. `mergeguard init` writes a conservative `.mergeguard.yml` an
 | Field | Default | Notes |
 | --- | --- | --- |
 | `fail_on` | `high` | Also accepts `failOn`. Values: `critical`, `high`, `medium`, `low`, `info`, `none` |
-| `verifier.engine` | `auto` | `auto`, `offline`, `deterministic` (alias of offline), `laya`, `jev` |
+| `verifier.engine` | `offline` | `offline` (default, reproducible), `deterministic` (alias), `auto` (Laya if installed), `laya`, `jev` |
 | `confidence` | `0.62` | Verifier strength threshold in `0..1` |
 | `exclude` | `node_modules/**`, `vendor/**`, `dist/**`, `build/**`, `coverage/**`, `.next/**`, `.git/**`, `**/*.min.js`, `**/*.map`, `**/generated/**` | Also accepts `ignore` / `ignore.paths` |
 | `review.*` | all categories `true` | Disable a category with `false` |
@@ -35,7 +35,7 @@ review:
   security: true
   performance: false
 verifier:
-  engine: auto
+  engine: offline
 laya:
   python: python3
   max_len: 4096

@@ -4,9 +4,9 @@ import { review } from "./review.js";
 import { renderReport } from "./reporters/index.js";
 import { installHook, uninstallHook, hookStatus } from "./hook.js";
 import { githubWorkflow, gitlabWorkflow } from "./ci.js";
-import { loadConfig, writeDefaultConfig } from "./config.js";
-import { git, gitAvailable, repositoryRoot } from "./git.js";
-import { detectLaya } from "./verifiers/index.js";
+import { writeDefaultConfig } from "./config.js";
+import { repositoryRoot } from "./git.js";
+import { collectDoctorReport, formatDoctorReport } from "./doctor.js";
 import { VERSION } from "./version.js";
 
 const MACHINE_FORMATS = new Set(["json", "sarif", "gitlab"]);
@@ -26,7 +26,7 @@ export async function main(argv) {
   if (command === "review") return reviewCommand(rest);
   if (command === "hook") return hookCommand(rest);
   if (command === "init") return initCommand(rest);
-  if (command === "doctor") return doctorCommand();
+  if (command === "doctor") return doctorCommand(rest);
   if (command === "ci") return ciCommand(rest);
   throw new Error(`Unknown command '${command}'. Run mergeguard --help.`);
 }
@@ -111,29 +111,14 @@ function initCommand(args) {
   return 0;
 }
 
-function doctorCommand() {
-  const rows = [];
-  rows.push(["Node", process.version, Number(process.versions.node.split(".")[0]) >= 20]);
-  rows.push(["Git", gitAvailable() ? git(["--version"]).trim() : "not found", gitAvailable()]);
-  let root;
-  try {
-    root = repositoryRoot();
-    rows.push(["Repository", root, true]);
-  } catch (error) {
-    rows.push(["Repository", error.message, false]);
+function doctorCommand(args = []) {
+  const report = collectDoctorReport();
+  if (args.includes("--json")) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    console.log(formatDoctorReport(report));
   }
-  if (root) {
-    try {
-      const loaded = loadConfig(root);
-      rows.push(["Config", loaded.path || "defaults (no config file)", true]);
-    } catch (error) {
-      rows.push(["Config", error.message, false]);
-    }
-  }
-  const laya = detectLaya(root ? loadConfig(root).config : { laya: {} });
-  rows.push(["Laya", laya.available ? `${laya.version} via ${laya.command}` : "not installed (offline verifier remains available)", true]);
-  for (const [name, value, ok] of rows) console.log(`${ok ? "✓" : "✗"} ${name.padEnd(12)} ${value}`);
-  return rows.every((row) => row[2]) ? 0 : 2;
+  return report.ok ? 0 : 2;
 }
 
 function ciCommand(args) {
@@ -211,7 +196,7 @@ USAGE
   mergeguard review [options]
   mergeguard hook install|uninstall|status
   mergeguard init [--hook] [--force]
-  mergeguard doctor
+  mergeguard doctor [--json]
   mergeguard ci github|gitlab [--write] [--force]
 
 REVIEW SCOPES

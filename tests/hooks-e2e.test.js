@@ -20,6 +20,7 @@ test("hook install is idempotent and preserves existing content", () => {
   const text = read(root, path.slice(root.length + 1));
   assert.equal(text.split("# >>> mergeguard >>>").length - 1, 1);
   assert(text.includes("existing-check"));
+  assert(!text.includes("npx --yes --package mergeguard"));
   uninstallHook(root);
   const after = read(root, path.slice(root.length + 1));
   assert(after.includes("existing-check"));

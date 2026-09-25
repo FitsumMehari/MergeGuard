@@ -4,6 +4,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { NPM_PACKAGE_NAME } from "../src/package-meta.js";
+import { githubWorkflow, gitlabWorkflow } from "../src/ci.js";
 import { run, spawn, tempRepo, put, commitAll } from "./helpers.js";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
@@ -15,8 +17,20 @@ function packTarball() {
   return join(dest, name);
 }
 
-test("packed tarball installs, runs the CLI, and imports the API", async () => {
+test("package name is scoped and CI templates install it", () => {
+  assert.equal(NPM_PACKAGE_NAME, "@fitsummehari/mergeguard");
+  const gh = githubWorkflow();
+  const gl = gitlabWorkflow();
+  assert.match(gh, /npm install --save-dev @fitsummehari\/mergeguard/);
+  assert.match(gl, /npm install --save-dev @fitsummehari\/mergeguard/);
+  assert.match(gh, /npx mergeguard review --verifier offline/);
+  assert.doesNotMatch(gh, /npm install --save-dev mergeguard[^-@]/);
+  assert.doesNotMatch(gl, /npm install --save-dev mergeguard[^-@]/);
+});
+
+test("packed tarball installs, runs the CLI, and imports the scoped API", async () => {
   const tarball = packTarball();
+  assert.match(tarball, /fitsummehari-mergeguard-0\.1\.0\.tgz$/);
   const project = tempRepo();
   put(project, "package.json", JSON.stringify({ name: "consumer", private: true, type: "module" }));
   const install = spawn("npm", ["install", tarball], project);
@@ -31,10 +45,10 @@ test("packed tarball installs, runs the CLI, and imports the API", async () => {
 
   put(project, "ok.js", "export const x = 1;\n");
   commitAll(project, "ok");
-  const clean = spawn(bin, ["review", "--no-ai"], project);
+  const clean = spawn(bin, ["review", "--verifier", "offline"], project);
   assert.equal(clean.status, 0, clean.stderr);
 
-  const apiPath = pathToFileURL(join(project, "node_modules", "mergeguard", "src", "index.js")).href;
+  const apiPath = pathToFileURL(join(project, "node_modules", "@fitsummehari", "mergeguard", "src", "index.js")).href;
   const mod = await import(apiPath);
   assert.equal(typeof mod.review, "function");
   assert.equal(mod.VERSION, "0.1.0");

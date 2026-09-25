@@ -1,13 +1,14 @@
+# Default: Node + offline verifier. Optional Laya: see docs/LAYA.md.
 mergeguard:
   stage: test
   image: node:22
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - npm install --save-dev mergeguard
+    - npm install --save-dev @fitsummehari/mergeguard
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
   script:
-    - npx mergeguard review --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --head "$CI_COMMIT_SHA" --format gitlab --output gl-code-quality-report.json
+    - npx mergeguard review --verifier offline --base "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --head "$CI_COMMIT_SHA" --format gitlab --output gl-code-quality-report.json
   artifacts:
     when: always
     reports:

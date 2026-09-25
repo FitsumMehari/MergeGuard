@@ -24,9 +24,11 @@ PASS / BLOCK
 The same engine is used by the CLI, a Git pre-push hook, GitHub Actions, GitLab CI, other CI systems, and the programmatic Node API.
 
 ```bash
-npm install -D mergeguard
+npm install -D @fitsummehari/mergeguard
 npx mergeguard review
 ```
+
+Requires only **Node.js 20+** and **Git** for the default offline experience. The CLI binary is `mergeguard`; the npm package is scoped because the unscoped name is owned by a different project.
 
 ## Why it exists
 
@@ -64,26 +66,38 @@ It is also not a CVE database, secret scanner, compiler, or test runner.
 
 ## Installation
 
-Requires **Node.js 20+** and **Git**. There are **zero runtime npm dependencies**.
-
 ```bash
-npm install -D mergeguard
+npm install -D @fitsummehari/mergeguard
+npx mergeguard review
 ```
 
-Or run once without adding it to a project:
+Zero runtime npm dependencies. Python is **not** required for default operation.
+
+### One-off invocation without a local install
+
+Do **not** run bare `npx mergeguard` before installing — npm may resolve the unrelated unscoped `mergeguard` package.
 
 ```bash
-npx mergeguard review
+npx --package=@fitsummehari/mergeguard mergeguard review
+```
+
+After a normal local install, `npx mergeguard review` is correct because npm uses the local binary.
+
+### From this source tree
+
+```bash
+node bin/mergeguard.js review
 ```
 
 ## 30-second quick start
 
 ```bash
 cd your-git-repo
+npm install -D @fitsummehari/mergeguard
 npx mergeguard review
 ```
 
-That reviews the working tree (staged, unstaged, and untracked) against `HEAD`. Exit `0` means pass. Exit `1` means a blocking finding. Exit `2` means MergeGuard or the environment failed.
+That reviews the working tree (staged, unstaged, and untracked) against `HEAD`. Exit `0` means pass. Exit `1` means a blocking finding. Exit `2` means MergeGuard or the environment failed. The default verifier is **offline** (reproducible across machines).
 
 ## Local review
 
@@ -92,7 +106,7 @@ npx mergeguard review
 npx mergeguard review --staged
 npx mergeguard review --base origin/main
 npx mergeguard review --base origin/main --head HEAD
-npx mergeguard review --no-ai
+npx mergeguard review --verifier offline
 ```
 
 `--no-ai` and `--verifier offline` / `--verifier deterministic` force the built-in verifier.
@@ -121,7 +135,7 @@ Use CI as the enforcement layer. Local hooks are a convenience, not a security b
 npx mergeguard ci github --write
 ```
 
-Or copy [`examples/github/mergeguard.yml`](examples/github/mergeguard.yml). The job checks out full history, installs MergeGuard, reviews `origin/<base>...HEAD`, and can upload SARIF. Make the job a required check if you want enforcement.
+Or copy [`examples/github/mergeguard.yml`](examples/github/mergeguard.yml). Default templates install `@fitsummehari/mergeguard`, pin `--verifier offline`, and can upload SARIF. Make the job a required check if you want enforcement. Optional Laya-in-CI recipes are in [docs/LAYA.md](docs/LAYA.md).
 
 ## GitLab CI
 
@@ -133,17 +147,18 @@ Or copy [`examples/gitlab/mergeguard.yml`](examples/gitlab/mergeguard.yml). The 
 
 ## Other CI
 
-Any runner with Git and Node 20+ can run the same engine:
+Any runner with Git and Node 20+ can run the same engine after installing the scoped package:
 
 ```bash
-npx mergeguard review --base <base> --head <head>
+npm install -D @fitsummehari/mergeguard
+npx mergeguard review --verifier offline --base <base> --head <head>
 ```
 
-That works on Jenkins, CircleCI, Azure DevOps, Bitbucket, Buildkite, and custom CI. No provider credentials are required for offline / Laya verification.
+That works on Jenkins, CircleCI, Azure DevOps, Bitbucket, Buildkite, and custom CI. No provider credentials are required for offline verification.
 
 ## Configuration
 
-Zero-config is the default. To pin policy:
+Zero-config defaults to the offline verifier. To pin policy:
 
 ```bash
 npx mergeguard init
@@ -169,10 +184,12 @@ review:
   performance: true
 
 verifier:
-  engine: auto
+  engine: offline
 ```
 
-`fail_on` may be `critical`, `high`, `medium`, `low`, `info`, or `none`. Unknown root keys produce a warning. Malformed YAML reports the file path and line. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for defaults and limits.
+`fail_on` may be `critical`, `high`, `medium`, `low`, `info`, or `none`. Unknown root keys produce a warning. Malformed YAML reports the file path and line. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+`auto` is available but environment-dependent (uses Laya when installed). Prefer pinning `offline` or `laya` for team/CI reproducibility. `mergeguard doctor` shows configured vs effective verifier.
 
 ## Output formats
 
@@ -193,9 +210,9 @@ Machine-readable formats write only the report to stdout (or `--output`). Status
 | `1` | Review completed; policy blocked the change |
 | `2` | MergeGuard, config, Git, or runtime failure |
 
-## Laya setup
+## Optional Laya
 
-Laya is optional. `auto` (the default) uses a local Laya install when it is importable, otherwise the deterministic verifier. Missing Laya is not an error in `auto` mode.
+Laya is **not** bundled with the npm package. MergeGuard works without it. Keeping model weights out of npm keeps the install small (~40 KB) and lets default CI run on Node alone.
 
 ```bash
 python -m pip install laya
@@ -203,13 +220,11 @@ npx mergeguard doctor
 npx mergeguard review --verifier laya
 ```
 
-`--verifier laya` fails with an actionable message if Laya is not available. MergeGuard talks to Laya through a short-lived local Python process (`scripts/laya_bridge.py`) over stdin/stdout. It does not start an HTTP server.
+`--verifier laya` exits `2` with an install hint if Laya is missing. It does **not** silently fall back. See [docs/LAYA.md](docs/LAYA.md).
 
-On first model-backed use, Laya may download a checkpoint into the normal local Hugging Face cache. Later runs can use that cache. Set `MERGEGUARD_PYTHON` or `laya.python` in config if the default `python3`/`python` is wrong. `MERGEGUARD_LAYA_TIMEOUT_MS` defaults to 180000.
+MergeGuard talks to Laya through a short-lived local Python process over stdin/stdout. It does not start an HTTP server. First model use may download a checkpoint into the Hugging Face cache.
 
-This repository's tests run a real Laya inference only when Laya is installed; they skip with a precise reason otherwise.
-
-## Optional Jev setup
+## Optional Jev
 
 Jev is opt-in and never required for default operation.
 
@@ -218,14 +233,12 @@ export TYPESAFE_API_KEY=...   # or JEV_API_KEY
 npx mergeguard review --verifier jev
 ```
 
-Jev sends candidate evidence to `https://api.typesafe.ai/v1/systemone` unless you override `jev.url`. Secrets are read from the environment and are not printed.
+Jev sends candidate evidence to the configured HTTP API. Secrets are read from the environment and are not printed.
 
 ## Programmatic API
 
-The CLI is a wrapper. Library users should not parse terminal text.
-
 ```js
-import { review } from "mergeguard";
+import { review } from "@fitsummehari/mergeguard";
 
 const result = await review({
   cwd: process.cwd(),
@@ -243,23 +256,13 @@ Also exported: `reviewChangeSet`, `loadConfig`, `normalizeConfig`, `renderReport
 
 MergeGuard **runs on any normal Git repository**. That is not the same as equal deep semantics for every language.
 
-```text
-Universal Git/diff layer
-        ↓
-generic language-independent detectors
-        ↓
-language adapters
-        ↓
-framework-specific context adapters
-```
-
-JavaScript, TypeScript, Python, Java, Kotlin, Go, C#, PHP, Ruby, and SQL have additional syntax-aware rules. Rust, C, C++, shell, YAML, JSON, Terraform, Dockerfiles, and mixed monorepos still get generic diff, security, database, and context analysis and must not crash merely because a deeper adapter is missing.
+JavaScript, TypeScript, Python, Java, Kotlin, Go, C#, PHP, Ruby, and SQL have additional syntax-aware rules. Rust, C, C++, shell, YAML, JSON, Terraform, Dockerfiles, and mixed monorepos still get generic analysis and must not crash merely because a deeper adapter is missing.
 
 ## Limitations
 
 - Findings are candidates plus a verifier, not proofs.
-- Context is bounded: nearby files, manifests, schemas, and auth/data-access evidence — not a persisted project database.
-- Generated, minified, binary, and ignored paths are skipped; huge diffs are truncated (`max_files` default 300).
+- Context is bounded — not a persisted project database.
+- Huge diffs are truncated; generated/minified/binary paths are skipped.
 - Local hooks can be bypassed with `--no-verify`.
 - Semantic depth varies by language and framework.
 

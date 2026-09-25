@@ -6,5 +6,5 @@
 - Large diffs are truncated (`max_files`). Generated, minified, binary, and excluded paths are skipped.
 - First-push and root-commit reviews use Git's empty tree. Shallow clones still need enough history for `--base` merge-base resolution.
 - Pre-push hooks can be bypassed with `git push --no-verify`.
-- `auto` does not fail when Laya is missing. Only `--verifier laya` (or `verifier.engine: laya`) requires it.
+- Default verifier is `offline`. `auto` does not fail when Laya is missing and can make laptop vs CI results differ. Only `--verifier laya` (or `verifier.engine: laya`) requires Laya.
 - Jev is optional, network-using, and credential-gated. Default operation never needs it.

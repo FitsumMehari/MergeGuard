@@ -38,7 +38,9 @@ test("explicit laya fails clearly when unavailable", async (t) => {
   const root = unsafeRepo();
   const cli = runCli(["review", "--verifier", "laya"], root);
   assert.equal(cli.status, 2);
-  assert.match(cli.stderr, /Laya is not installed/);
+  assert.match(cli.stderr, /Laya verification was requested but Laya is not installed/);
+  assert.match(cli.stderr, /python -m pip install laya/);
+  assert.doesNotMatch(cli.stderr, /Traceback/);
 });
 
 test("offline verifier can suppress a low-confidence candidate", async () => {

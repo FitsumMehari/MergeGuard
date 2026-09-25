@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { hooksDirectory, repositoryRoot } from "./git.js";
+import { installSpec } from "./package-meta.js";
 
 const START = "# >>> mergeguard >>>";
 const END = "# <<< mergeguard <<<";
@@ -18,6 +19,7 @@ export function installHook(cwd = process.cwd(), { force = false } = {}) {
     if (!force) throw new Error(`Existing pre-push hook has no shebang: ${path}. Use --force to prepend one safely.`);
     existing = `#!/bin/sh\n${existing}`;
   }
+  const pkg = installSpec();
   const block = `
 ${START}
 # MergeGuard reviews the outgoing push range. Bypass with: git push --no-verify
@@ -33,7 +35,11 @@ run_mergeguard() {
   elif command -v mergeguard >/dev/null 2>&1; then
     mergeguard review --push
   else
-    npx --yes --package mergeguard mergeguard review --push
+    echo "MergeGuard is not installed in this repository." >&2
+    echo "Install with: npm install -D ${pkg}" >&2
+    echo "Do not install the unscoped npm name mergeguard (different package)." >&2
+    echo "Or set MERGEGUARD_BIN to the mergeguard executable." >&2
+    exit 2
   fi
 }
 printf '%s\\n' "$input" | run_mergeguard

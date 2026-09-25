@@ -5,7 +5,7 @@ import { CATEGORIES, SEVERITIES, parseSimpleYaml } from "./utils.js";
 export const defaultConfig = Object.freeze({
   version: 1,
   failOn: "high",
-  verifier: "auto",
+  verifier: "offline",
   confidence: 0.62,
   maxFiles: 300,
   maxCandidates: 120,
@@ -88,33 +88,37 @@ export function normalizeConfig(input = {}) {
 export function writeDefaultConfig(root, { force = false } = {}) {
   const path = resolve(root, ".mergeguard.yml");
   if (existsSync(path) && !force) throw new Error(`${path} already exists (use --force to replace it)`);
-  const text = `# MergeGuard configuration
-version: 1
-fail_on: high
-verifier:
-  engine: auto
-
-confidence: 0.62
-
-exclude:
-  - node_modules/**
-  - vendor/**
-  - dist/**
-  - build/**
-  - coverage/**
-  - generated/**
-
-review:
-  correctness: true
-  security: true
-  concurrency: true
-  database: true
-  authorization: true
-  tenant-isolation: true
-  reliability: true
-  performance: true
-  api: true
-`;
+  const text = [
+    "# MergeGuard configuration",
+    "version: 1",
+    "fail_on: high",
+    "# Use offline in CI for identical results across machines.",
+    "# auto picks local Laya when installed and is environment-dependent.",
+    "verifier:",
+    "  engine: offline",
+    "",
+    "confidence: 0.62",
+    "",
+    "exclude:",
+    "  - node_modules/**",
+    "  - vendor/**",
+    "  - dist/**",
+    "  - build/**",
+    "  - coverage/**",
+    "  - generated/**",
+    "",
+    "review:",
+    "  correctness: true",
+    "  security: true",
+    "  concurrency: true",
+    "  database: true",
+    "  authorization: true",
+    "  tenant-isolation: true",
+    "  reliability: true",
+    "  performance: true",
+    "  api: true",
+    "",
+  ].join("\n");
   writeFileSync(path, text);
   return path;
 }

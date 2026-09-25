@@ -3,11 +3,24 @@ import { offlineVerify } from "./offline.js";
 import { detectLaya, verifyWithLaya } from "./laya.js";
 import { verifyWithJev } from "./jev.js";
 
+export function resolveVerifier(config = {}) {
+  const configured = config.verifier === "deterministic" ? "offline" : (config.verifier || "offline");
+  if (configured === "auto") {
+    const laya = detectLaya(config);
+    return {
+      configured: "auto",
+      effective: laya.available ? "laya" : "offline",
+      reason: laya.available ? "Laya is installed" : "Laya is not installed",
+    };
+  }
+  return { configured, effective: configured, reason: "explicit configuration" };
+}
+
 export async function verifyCandidates(candidates, contextFor, config, { onWarning } = {}) {
   const items = candidates.map((candidate) => ({ candidate, context: contextFor(candidate) }));
   let verifications;
-  let provider = config.verifier;
-  if (provider === "auto") provider = detectLaya(config).available ? "laya" : "offline";
+  const resolved = resolveVerifier(config);
+  let provider = resolved.effective;
 
   if (provider === "laya") {
     try { verifications = verifyWithLaya(items, config); }
@@ -32,4 +45,4 @@ export async function verifyCandidates(candidates, contextFor, config, { onWarni
 }
 
 function severityScore(s){return {critical:5,high:4,medium:3,low:2,info:1}[s]||0;}
-export { detectLaya } from "./laya.js";
+export { detectLaya, detectPython, LAYA_MISSING_MESSAGE } from "./laya.js";

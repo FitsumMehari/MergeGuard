@@ -11,7 +11,7 @@ test("no config file uses defaults", () => {
   const loaded = loadConfig(root);
   assert.equal(loaded.path, undefined);
   assert.equal(loaded.config.failOn, "high");
-  assert.equal(loaded.config.verifier, "auto");
+  assert.equal(loaded.config.verifier, "offline");
 });
 
 test("init writes config and refuses to overwrite", () => {
@@ -57,5 +57,5 @@ test("writeDefaultConfig is conservative", () => {
   const loaded = loadConfig(root);
   assert.equal(loaded.path, path);
   assert.equal(loaded.config.failOn, "high");
-  assert.equal(loaded.config.verifier, "auto");
+  assert.equal(loaded.config.verifier, "offline");
 });

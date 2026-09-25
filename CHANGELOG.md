@@ -12,7 +12,8 @@ First public beta of MergeGuard as a local-first semantic pre-push / code-change
 - Working-tree, staged, `--base`/`--head`, and pre-push Git scopes, including first commits and first pushes against Git's empty tree
 - High-signal detectors for security, authorization, tenant isolation, concurrency, database integrity, and related runtime risk
 - Bounded ephemeral repository context (no persisted project database)
-- Deterministic verifier by default; optional local Laya; optional Jev
+- Published as `@fitsummehari/mergeguard` (CLI binary remains `mergeguard`; unscoped `mergeguard` is a different npm package)
+- Deterministic `offline` verifier by default (reproducible); `auto` and local Laya optional; optional Jev
 - Terminal, JSON, SARIF, and GitLab Code Quality reporters
 - Non-destructive, idempotent hook install/uninstall that respects `core.hooksPath`
-- Zero runtime npm dependencies; Node.js 20+
+- Zero runtime npm dependencies; Node.js 20+; Laya model weights are not bundled
